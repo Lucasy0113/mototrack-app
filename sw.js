@@ -1,10 +1,11 @@
-const CACHE_NAME = 'mototrack-v4';
+const CACHE_NAME = 'mototrack-v5';
 const ASSETS = [
-  '/mototrack-app/',
-  '/mototrack-app/index.html',
-  '/mototrack-app/style.css',
-  '/mototrack-app/app.js',
-  '/mototrack-app/manifest.json'
+  './',
+  './index.html',
+  './style.css',
+  './app.js',
+  './db.js',
+  './manifest.json'
 ];
 
 self.addEventListener('install', e => {
@@ -19,7 +20,11 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  e.respondWith(
-    caches.match(e.request).then(res => res || fetch(e.request).catch(() => caches.match('/mototrack-app/')))
-  );
+  // No cachear peticiones a Supabase (siempre frescas)
+  if (e.request.url.includes('supabase.co')) {
+    e.respondWith(fetch(e.request));
+    return;
+  }
+  // Cachear assets estáticos
+  e.respondWith(caches.match(e.request).then(res => res || fetch(e.request)));
 });

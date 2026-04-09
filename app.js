@@ -3,9 +3,8 @@ let currentTab = 'fuel';
 let currentPage = 1;
 const ITEMS_PER_PAGE = 10;
 let editingId = null;
-
-// CARGAR DB O INICIAR VACÍA
-const db = JSON.parse(localStorage.getItem('mototrack_db')) || { fuel: [], maint: [] };
+let currentUser = null;
+let localCache = { fuel: [], maint: [] }; // Fallback offline
 
 // ELEMENTOS DOM
 const $summary = document.getElementById('summary');
@@ -15,14 +14,63 @@ const $modal = document.getElementById('modal');
 const $form = document.getElementById('record-form');
 const $fields = document.getElementById('form-fields');
 const $themeBtn = document.getElementById('theme-toggle');
+const $addBtn = document.getElementById('add-btn');
 
 // INICIALIZACIÓN
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   loadTheme();
-  recalculateAll(); // Garantiza cálculos al abrir
-  renderAll();
+  setupAuthListener();
+  await checkAuth();
   setupEvents();
 });
+
+async function checkAuth() {
+  currentUser = await window.db.getCurrentUser();
+  if (currentUser) {
+    // Usuario logueado: cargar desde Supabase
+    $addBtn.style.display = 'flex';
+    await loadData();
+  } else {
+    // No logueado: mostrar login
+    $addBtn.style.display = 'none';
+    showLoginModal();
+  }
+}
+
+function setupAuthListener() {
+  window.db.supabase.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'SIGNED_IN') {
+      currentUser = session.user;
+      localStorage.setItem('mototrack_user', JSON.stringify({ id: currentUser.id, email: currentUser.email }));
+      $modal.close();
+      await loadData();
+      $addBtn.style.display = 'flex';
+    } else if (event === 'SIGNED_OUT') {
+      currentUser = null;
+      localCache = { fuel: [], maint: [] };
+      renderAll();
+      showLoginModal();
+      $addBtn.style.display = 'none';
+    }
+  });
+}
+
+async function loadData() {
+  try {
+    const [fuel, maint] = await Promise.all([
+      window.db.fetchRecords('fuel'),
+      window.db.fetchRecords('maintenance') // Nota: 'maintenance' para coincidir con la tabla
+    ]);
+    localCache = { fuel, maint: maint };
+    // Migrar datos locales si es primera vez
+    await window.db.migrateLocalStorage('fuel');
+    await window.db.migrateLocalStorage('maintenance');
+    renderAll();
+  } catch (e) {
+    console.warn('Error cargando datos, usando caché local:', e);
+    renderAll();
+  }
+}
 
 function setupEvents() {
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -35,7 +83,7 @@ function setupEvents() {
     });
   });
 
-  document.getElementById('add-btn').addEventListener('click', () => openModal());
+  $addBtn.addEventListener('click', () => openModal());
   document.getElementById('cancel-btn').addEventListener('click', () => $modal.close());
   $modal.addEventListener('close', () => { $form.reset(); editingId = null; });
   $form.addEventListener('submit', saveRecord);
@@ -50,7 +98,7 @@ function setupEvents() {
 }
 
 function getRecords() {
-  return db[currentTab].sort((a, b) => new Date(b.date) - new Date(a.date));
+  return (localCache[currentTab] || []).sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
 function renderAll() {
@@ -63,14 +111,10 @@ function renderAll() {
 function renderSummary(records) {
   let totalMoney = 0;
   let avgVal = 0;
-  
-  // Registros válidos para promedio
   const validRecords = records.filter(r => r.consumption !== 'PRIMER REGISTRO' && !isNaN(parseFloat(r.consumption)));
   if (validRecords.length > 0) {
     avgVal = validRecords.reduce((sum, r) => sum + parseFloat(r.consumption), 0) / validRecords.length;
   }
-  
-  // Suma de dinero
   records.forEach(r => {
     const val = parseFloat(r.money || r.price || 0);
     totalMoney += isNaN(val) ? 0 : val;
@@ -97,7 +141,7 @@ function renderList(records) {
 
   pageData.forEach(rec => {
     const dinero = currentTab === 'fuel' 
-      ? (parseFloat(rec.money || (parseFloat(rec.liters || 0) * parseFloat(rec.pricePerL || 0)))).toFixed(2)
+      ? (parseFloat(rec.money || (parseFloat(rec.liters || 0) * parseFloat(rec.price_per_liter || 0)))).toFixed(2)
       : parseFloat(rec.price || 0).toFixed(2);
 
     const fields = currentTab === 'fuel' 
@@ -115,7 +159,7 @@ function renderList(records) {
          </div>
          <div class="record-row">
            <span class="label"><span class="icon">💲</span>Precio/L:</span>
-           <span class="value">$${rec.pricePerL}</span>
+           <span class="value">$${rec.price_per_liter}</span>
          </div>
          <div class="record-row money-row">
            <span class="label"><span class="icon">💰</span>Dinero gastado:</span>
@@ -135,7 +179,7 @@ function renderList(records) {
          </div>
          <div class="record-row">
            <span class="label"><span class="icon">🛢️</span>Aceite:</span>
-           <span class="value">${rec.brand} (${rec.type} - ${rec.viscosity})</span>
+           <span class="value">${rec.brand} (${rec.oil_type} - ${rec.viscosity})</span>
          </div>
          <div class="record-row">
            <span class="label"><span class="icon">💲</span>Precio:</span>
@@ -171,12 +215,50 @@ function renderPagination(total) {
   }
 }
 
+function showLoginModal() {
+  document.getElementById('modal-title').textContent = 'Iniciar Sesión';
+  $fields.innerHTML = `
+    <div style="margin-bottom:1rem;"><label>Email</label><input type="email" id="auth-email" required style="width:100%;padding:0.5rem;margin-top:0.3rem;"></div>
+    <div style="margin-bottom:1rem;"><label>Contraseña</label><input type="password" id="auth-pass" required style="width:100%;padding:0.5rem;margin-top:0.3rem;"></div>
+    <div style="display:flex;gap:0.5rem;">
+      <button type="button" id="auth-login" style="flex:1;padding:0.6rem;background:#dbeafe;color:#1d4ed8;border:none;border-radius:6px;cursor:pointer;">Entrar</button>
+      <button type="button" id="auth-signup" style="flex:1;padding:0.6rem;background:#fee2e2;color:#b91c1c;border:none;border-radius:6px;cursor:pointer;">Registrarse</button>
+    </div>
+    <p id="auth-error" style="color:#ef4444;font-size:0.85rem;margin-top:0.5rem;display:none;"></p>
+  `;
+  $modal.showModal();
+  
+  document.getElementById('auth-login').onclick = async () => {
+    const email = document.getElementById('auth-email').value;
+    const pass = document.getElementById('auth-pass').value;
+    try {
+      await window.db.signIn(email, pass);
+    } catch (e) {
+      document.getElementById('auth-error').textContent = 'Error: ' + e.message;
+      document.getElementById('auth-error').style.display = 'block';
+    }
+  };
+  
+  document.getElementById('auth-signup').onclick = async () => {
+    const email = document.getElementById('auth-email').value;
+    const pass = document.getElementById('auth-pass').value;
+    try {
+      await window.db.signUp(email, pass);
+      // El listener onAuthStateChange se encargará del resto
+    } catch (e) {
+      document.getElementById('auth-error').textContent = 'Error: ' + e.message;
+      document.getElementById('auth-error').style.display = 'block';
+    }
+  };
+}
+
 function openModal(id = null) {
+  if (!currentUser) { showLoginModal(); return; }
+  
   editingId = id;
-  const rec = id ? db[currentTab].find(r => r.id === id) : null;
+  const rec = id ? localCache[currentTab].find(r => r.id === id) : null;
   document.getElementById('modal-title').textContent = id ? 'Editar Registro' : 'Nuevo Registro';
 
-  // ✅ Usa hora local corregida
   const now = getLocalDateTime();
   $fields.innerHTML = '';
   
@@ -185,13 +267,13 @@ function openModal(id = null) {
         { id: 'date', label: 'Fecha y hora', type: 'datetime-local', val: rec?.date || now },
         { id: 'odometer', label: 'Odómetro (km)', type: 'number', val: rec?.odometer || '' },
         { id: 'liters', label: 'Litros', type: 'number', step: '0.01', val: rec?.liters || '' },
-        { id: 'pricePerL', label: 'Precio por litro ($)', type: 'number', step: '0.01', val: rec?.pricePerL || '' }
+        { id: 'pricePerL', label: 'Precio por litro ($)', type: 'number', step: '0.01', val: rec?.price_per_liter || '' }
       ]
     : [
         { id: 'date', label: 'Fecha y hora', type: 'datetime-local', val: rec?.date || now },
         { id: 'odometer', label: 'Odómetro (km)', type: 'number', val: rec?.odometer || '' },
         { id: 'brand', label: 'Marca del aceite', type: 'text', val: rec?.brand || '' },
-        { id: 'type', label: 'Tipo', type: 'select', opts: ['Sintético', 'Natural'], val: rec?.type || 'Sintético' },
+        { id: 'type', label: 'Tipo', type: 'select', opts: ['Sintético', 'Natural'], val: rec?.oil_type || 'Sintético' },
         { id: 'viscosity', label: 'Viscosidad (ej: 10W40)', type: 'text', val: rec?.viscosity || '' },
         { id: 'price', label: 'Precio del aceite ($)', type: 'number', step: '0.01', val: rec?.price || '' }
       ];
@@ -217,59 +299,70 @@ function openModal(id = null) {
   $modal.showModal();
 }
 
-
-function saveRecord(e) {
+async function saveRecord(e) {
   e.preventDefault();
+  if (!currentUser) { showLoginModal(); return; }
+  
   const data = {};
   $fields.querySelectorAll('input, select').forEach(el => data[el.id] = el.value);
   
   if (currentTab === 'fuel') {
-    data.id = editingId || crypto.randomUUID();
-    // ✅ CÁLCULO EXPLÍCITO DE DINERO GASTADO
+    data.id = editingId || 'new';
     data.money = (parseFloat(data.liters) * parseFloat(data.pricePerL)).toFixed(2);
     data.consumption = 'PENDING';
   } else {
-    data.id = editingId || crypto.randomUUID();
+    data.id = editingId || 'new';
     data.money = parseFloat(data.price).toFixed(2);
     data.consumption = 'PENDING';
   }
 
-  if (editingId) {
-    const idx = db[currentTab].findIndex(r => r.id === editingId);
-    db[currentTab][idx] = { ...db[currentTab][idx], ...data };
-  } else {
-    db[currentTab].push(data);
+  try {
+    await window.db.saveRecord(currentTab === 'fuel' ? 'fuel' : 'maintenance', data);
+    await loadData(); // Recargar desde la nube
+    $modal.close();
+  } catch (err) {
+    alert('Error guardando: ' + err.message);
   }
+}
 
-  recalculateAll();
-  saveDB();
-  $modal.close();
-  renderAll();
+async function deleteRecord(id) {
+  if (!confirm('¿Eliminar este registro?')) return;
+  if (!currentUser) { showLoginModal(); return; }
+  
+  try {
+    await window.db.deleteRecord(currentTab === 'fuel' ? 'fuel' : 'maintenance', id);
+    await loadData();
+  } catch (err) {
+    alert('Error eliminando: ' + err.message);
+  }
 }
 
 function recalculateAll() {
-  const sorted = db[currentTab].sort((a, b) => new Date(a.date) - new Date(b.date));
+  // Ya se hace en el backend al guardar, pero mantenemos para fallback offline
+  const sorted = localCache[currentTab].sort((a, b) => new Date(a.date) - new Date(b.date));
   sorted.forEach((rec, i) => {
     const prev = sorted[i - 1];
     const odom = parseFloat(rec.odometer);
     if (currentTab === 'fuel') {
-      rec.consumption = prev ? ((odom - parseFloat(prev.odometer)) / parseFloat(rec.liters)).toFixed(2) : 'PRIMER REGISTRO';
+      rec.consumption = prev ? ((odom - parseFloat(prev.odometer)) / parseFloat(rec.liters || 1)).toFixed(2) : 'PRIMER REGISTRO';
     } else {
       rec.consumption = prev ? (odom - parseFloat(prev.odometer)).toFixed(2) : 'PRIMER REGISTRO';
     }
   });
 }
 
-function deleteRecord(id) {
-  if (!confirm('¿Eliminar este registro?')) return;
-  db[currentTab] = db[currentTab].filter(r => r.id !== id);
-  saveDB();
-  recalculateAll();
-  renderAll();
+function getLocalDateTime() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset();
+  return new Date(now.getTime() - (offset * 60000)).toISOString().slice(0, 16);
 }
 
-function saveDB() { localStorage.setItem('mototrack_db', JSON.stringify(db)); }
-function formatDate(iso) { return new Date(iso).toLocaleString(); }
+function formatDate(iso) { 
+  if (!iso) return '';
+  const d = new Date(iso);
+  // Forzar zona horaria de Cuba (UTC-5 / UTC-4)
+  return d.toLocaleString('es-CU', { timeZone: 'America/Havana' });
+}
 
 // TEMAS
 function loadTheme() {
@@ -286,17 +379,7 @@ function toggleTheme() {
   localStorage.setItem('mototrack_theme', document.body.className);
 }
 
-// ✅ CORRECCIÓN DE ZONA HORARIA
-function getLocalDateTime() {
-  const now = new Date();
-  const offset = now.getTimezoneOffset(); // Minutos de diferencia con UTC
-  return new Date(now.getTime() - (offset * 60000)).toISOString().slice(0, 16);
-}
-
+// SERVICE WORKER
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/mototrack-app/sw.js')
-      .then(reg => console.log('SW registrado:', reg.scope))
-      .catch(err => console.log('SW error:', err));
-  });
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
 }
