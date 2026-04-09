@@ -1,5 +1,4 @@
-// 🏍️ MotoTrack - App.js (Versión Completa y Estable)
-// Estado global
+// 🏍️ MotoTrack - App.js (Versión Final con Cálculo Automático)
 let currentTab = 'fuel';
 let currentPage = 1;
 const ITEMS_PER_PAGE = 10;
@@ -7,7 +6,6 @@ let editingId = null;
 let currentUser = null;
 let localCache = { fuel: [], maint: [] };
 
-// Elementos DOM
 const $summary = document.getElementById('summary');
 const $list = document.getElementById('list-container');
 const $pagination = document.getElementById('pagination');
@@ -26,7 +24,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupEvents();
 });
 
-// Esperar a que db.js se cargue
 function waitForDb(timeout = 5000) {
   return new Promise((resolve) => {
     if (window.db) { resolve(); return; }
@@ -62,7 +59,6 @@ async function checkAuth() {
 
 function setupAuthListener() {
   if (!window.db || !window.db.supabase?.auth) return;
-  
   window.db.supabase.auth.onAuthStateChange((event, session) => {
     if (event === 'SIGNED_IN' && session?.user) {
       currentUser = session.user;
@@ -80,17 +76,39 @@ function setupAuthListener() {
   });
 }
 
-// ==================== CARGA DE DATOS ====================
+// ==================== CARGA DE DATOS + CÁLCULO ====================
 async function loadData() {
   if (!window.db) return;
   try {
-    const [fuel, maint] = await Promise.all([
+    let [fuel, maint] = await Promise.all([
       window.db.fetchRecords('fuel'),
       window.db.fetchRecords('maintenance')
     ]);
-    localCache = { fuel, maint };
+
+    // ✅ Calcular consumos automáticamente al cargar
+    localCache.fuel = calculateConsumption(fuel, 'fuel');
+    localCache.maint = calculateConsumption(maint, 'maint');
     renderAll();
   } catch (e) { console.warn('Error cargando:', e); renderAll(); }
+}
+
+// ✅ Función que calcula consumo/intervalo y reemplaza 'PENDING'
+function calculateConsumption(records, type) {
+  if (!records || records.length === 0) return [];
+  const sorted = [...records].sort((a, b) => new Date(a.date) - new Date(b.date));
+  sorted.forEach((rec, i) => {
+    const prev = sorted[i - 1];
+    const odom = parseFloat(rec.odometer) || 0;
+    const prevOdom = prev ? parseFloat(prev.odometer) || 0 : 0;
+
+    if (type === 'fuel') {
+      const liters = parseFloat(rec.liters) || 0;
+      rec.consumption = prev && liters > 0 ? ((odom - prevOdom) / liters).toFixed(2) : 'PRIMER REGISTRO';
+    } else {
+      rec.consumption = prev ? (odom - prevOdom).toFixed(2) : 'PRIMER REGISTRO';
+    }
+  });
+  return records;
 }
 
 // ==================== EVENTOS ====================
@@ -158,7 +176,6 @@ function renderList(records) {
   }
 
   pageData.forEach(rec => {
-    // ✅ Acceso seguro a campos (maneja snake_case de Supabase y camelCase local)
     const priceL = rec.price_per_liter ?? rec.pricePerL ?? 0;
     const oilType = rec.oil_type ?? rec.oilType ?? 'N/A';
     const dinero = currentTab === 'fuel' 
@@ -261,8 +278,6 @@ function openModal(id = null) {
 
   const now = getLocalDateTime();
   $fields.innerHTML = '';
-  
-  // ✅ Mapeo seguro para rellenar el formulario
   const safePriceL = rec?.price_per_liter ?? rec?.pricePerL ?? '';
   const safeOilType = rec?.oil_type ?? rec?.oilType ?? 'Sintético';
 
@@ -314,11 +329,11 @@ async function saveRecord(e) {
   if (currentTab === 'fuel') {
     data.id = editingId || 'new';
     data.money = (parseFloat(data.liters) * parseFloat(data.pricePerL)).toFixed(2);
-    data.consumption = 'PENDING';
+    data.consumption = null; // Se calcula al cargar
   } else {
     data.id = editingId || 'new';
     data.money = parseFloat(data.price).toFixed(2);
-    data.consumption = 'PENDING';
+    data.consumption = null;
   }
 
   try {
