@@ -293,7 +293,10 @@ function getLocalDateTime() {
   return new Date(now.getTime() - (offset * 60000)).toISOString().slice(0, 16);
 }
 
-// SERVICE WORKER
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/mototrack-app/sw.js')
+      .then(reg => console.log('SW registrado:', reg.scope))
+      .catch(err => console.log('SW error:', err));
+  });
 }

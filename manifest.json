@@ -1,9 +1,8 @@
 {
   "name": "MotoTrack",
   "short_name": "MotoTrack",
-  "description": "Registro de combustible y mantenimiento de moto",
-  "start_url": "./",
-  "scope": "./",
+  "start_url": "/mototrack-app/",
+  "scope": "/mototrack-app/",
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#2563eb",
