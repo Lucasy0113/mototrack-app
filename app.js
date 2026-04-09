@@ -25,6 +25,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function checkAuth() {
+  // ✅ Si db no está listo, mostrar login inmediatamente
+  if (!window.db) {
+    console.warn('db.js no cargó, mostrando login');
+    $addBtn.style.display = 'none';
+    showLoginModal();
+    renderAll();
+    return;
+  }
   currentUser = await window.db.getCurrentUser();
   if (currentUser) {
     // Usuario logueado: cargar desde Supabase
@@ -38,6 +46,12 @@ async function checkAuth() {
 }
 
 function setupAuthListener() {
+  // ✅ Protección: si db no existe, no hacer nada
+  if (!window.db || !window.db.supabase) {
+    console.warn('Supabase no cargó, usando modo offline');
+    return;
+  }
+  
   window.db.supabase.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_IN') {
       currentUser = session.user;
