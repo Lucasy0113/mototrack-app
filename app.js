@@ -1,12 +1,13 @@
-// ESTADO GLOBAL
+// 🏍️ MotoTrack - App.js (Versión con Supabase + Auth + Offline)
+// Estado global
 let currentTab = 'fuel';
 let currentPage = 1;
 const ITEMS_PER_PAGE = 10;
 let editingId = null;
 let currentUser = null;
-let localCache = { fuel: [], maint: [] }; // Fallback offline
+let localCache = { fuel: [], maint: [] };
 
-// ELEMENTOS DOM
+// Elementos DOM
 const $summary = document.getElementById('summary');
 const $list = document.getElementById('list-container');
 const $pagination = document.getElementById('pagination');
@@ -16,44 +17,88 @@ const $fields = document.getElementById('form-fields');
 const $themeBtn = document.getElementById('theme-toggle');
 const $addBtn = document.getElementById('add-btn');
 
-// INICIALIZACIÓN
+// ==================== INICIALIZACIÓN ====================
 document.addEventListener('DOMContentLoaded', async () => {
+  console.log('🚀 Iniciando MotoTrack...');
   loadTheme();
+  
+  // Esperar un poco a que db.js se cargue
+  await waitForDb();
+  
   setupAuthListener();
   await checkAuth();
   setupEvents();
 });
 
+// Esperar a que window.db esté disponible
+function waitForDb(timeout = 5000) {
+  return new Promise((resolve) => {
+    if (window.db) {
+      resolve();
+      return;
+    }
+    const start = Date.now();
+    const check = () => {
+      if (window.db || Date.now() - start > timeout) {
+        resolve();
+      } else {
+        setTimeout(check, 100);
+      }
+    };
+    check();
+  });
+}
+
+// ==================== AUTENTICACIÓN ====================
 async function checkAuth() {
-  // ✅ Si db no está listo, mostrar login inmediatamente
-  if (!window.db) {
-    console.warn('db.js no cargó, mostrando login');
-    $addBtn.style.display = 'none';
-    showLoginModal();
-    renderAll();
-    return;
+  console.log('🔐 Verificando auth...');
+  
+  // Verificar si hay usuario guardado en localStorage
+  const saved = localStorage.getItem('mototrack_user');
+  if (saved) {
+    try {
+      const user = JSON.parse(saved);
+      // Verificar con Supabase que la sesión sigue válida
+      if (window.db && typeof window.db.getCurrentUser === 'function') {
+        const currentUserCheck = await Promise.race([
+          window.db.getCurrentUser(),
+          new Promise(resolve => setTimeout(() => resolve(null), 3000))
+        ]);
+        if (currentUserCheck) {
+          currentUser = currentUserCheck;
+          console.log('✅ Sesión válida:', currentUser.email);
+          $addBtn.style.display = 'flex';
+          await loadData();
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Error verificando sesión:', e.message);
+    }
   }
-  currentUser = await window.db.getCurrentUser();
-  if (currentUser) {
-    // Usuario logueado: cargar desde Supabase
-    $addBtn.style.display = 'flex';
-    await loadData();
-  } else {
-    // No logueado: mostrar login
-    $addBtn.style.display = 'none';
-    showLoginModal();
-  }
+  
+  // No hay sesión válida: mostrar login
+  console.log('📝 Mostrando login');
+  $addBtn.style.display = 'none';
+  showLoginModal();
+  renderAll();
 }
 
 function setupAuthListener() {
-  if (!window.db || !window.db.supabase) {
-    console.warn('Supabase no disponible');
+  if (!window.db) {
+    console.warn('⚠️ db.js no cargó');
+    return;
+  }
+  
+  const auth = window.db.supabase?.auth;
+  if (!auth) {
+    console.warn('⚠️ Auth no disponible');
     return;
   }
   
   console.log('🔐 Registrando listener de auth...');
   
-  window.db.supabase.auth.onAuthStateChange((event, session) => {
+  auth.onAuthStateChange((event, session) => {
     console.log('🔄 Auth event:', event, session?.user?.id);
     
     if (event === 'SIGNED_IN' && session?.user) {
@@ -63,14 +108,25 @@ function setupAuthListener() {
         email: currentUser.email 
       }));
       console.log('✅ Usuario autenticado:', currentUser.email);
-      $modal.close();
-      loadData().then(() => renderAll()).catch(console.warn);
-      $addBtn.style.display = 'flex';
+      
+      // Cerrar modal si está abierto
+      if ($modal.open) $modal.close();
+      
+      // Cargar datos y mostrar UI
+      loadData().then(() => {
+        renderAll();
+        $addBtn.style.display = 'flex';
+      }).catch(err => {
+        console.warn('Error cargando datos:', err);
+        renderAll();
+        $addBtn.style.display = 'flex';
+      });
     } 
     else if (event === 'SIGNED_OUT') {
       console.log('🚪 Usuario cerrado');
       currentUser = null;
       localCache = { fuel: [], maint: [] };
+      localStorage.removeItem('mototrack_user');
       renderAll();
       showLoginModal();
       $addBtn.style.display = 'none';
@@ -78,24 +134,31 @@ function setupAuthListener() {
   });
 }
 
+// ==================== CARGA DE DATOS ====================
 async function loadData() {
+  if (!window.db) {
+    console.warn('⚠️ db no disponible, usando caché local');
+    return;
+  }
+  
   try {
+    console.log('📥 Cargando registros...');
     const [fuel, maint] = await Promise.all([
       window.db.fetchRecords('fuel'),
-      window.db.fetchRecords('maintenance') // Nota: 'maintenance' para coincidir con la tabla
+      window.db.fetchRecords('maintenance')
     ]);
-    localCache = { fuel, maint: maint };
-    // Migrar datos locales si es primera vez
-    await window.db.migrateLocalStorage('fuel');
-    await window.db.migrateLocalStorage('maintenance');
+    localCache = { fuel, maint };
+    console.log('✅ Datos cargados:', { fuel: fuel.length, maint: maint.length });
     renderAll();
   } catch (e) {
-    console.warn('Error cargando datos, usando caché local:', e);
+    console.warn('⚠️ Error cargando datos, usando caché:', e.message);
     renderAll();
   }
 }
 
+// ==================== EVENTOS ====================
 function setupEvents() {
+  // Tabs
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -106,20 +169,50 @@ function setupEvents() {
     });
   });
 
-  $addBtn.addEventListener('click', () => openModal());
-  document.getElementById('cancel-btn').addEventListener('click', () => $modal.close());
-  $modal.addEventListener('close', () => { $form.reset(); editingId = null; });
+  // Botón agregar
+  $addBtn.addEventListener('click', () => {
+    if (!currentUser) {
+      showLoginModal();
+      return;
+    }
+    openModal();
+  });
+  
+  // Modal
+  document.getElementById('cancel-btn').addEventListener('click', () => {
+    $modal.close();
+    editingId = null;
+    $form.reset();
+  });
+  
+  $modal.addEventListener('close', () => {
+    editingId = null;
+    $form.reset();
+  });
+  
   $form.addEventListener('submit', saveRecord);
+  
+  // Lista: editar/eliminar
   $list.addEventListener('click', (e) => {
-    const id = e.target.closest('[data-id]')?.dataset.id;
-    if (!id) return;
-    if (e.target.classList.contains('edit')) openModal(id);
-    if (e.target.classList.contains('delete')) deleteRecord(id);
+    const card = e.target.closest('[data-id]');
+    if (!card) return;
+    const id = card.dataset.id;
+    
+    if (e.target.classList.contains('edit')) {
+      if (!currentUser) { showLoginModal(); return; }
+      openModal(id);
+    }
+    if (e.target.classList.contains('delete')) {
+      if (!currentUser) { showLoginModal(); return; }
+      deleteRecord(id);
+    }
   });
 
+  // Tema
   $themeBtn.addEventListener('click', toggleTheme);
 }
 
+// ==================== RENDERIZADO ====================
 function getRecords() {
   return (localCache[currentTab] || []).sort((a, b) => new Date(b.date) - new Date(a.date));
 }
@@ -134,10 +227,15 @@ function renderAll() {
 function renderSummary(records) {
   let totalMoney = 0;
   let avgVal = 0;
-  const validRecords = records.filter(r => r.consumption !== 'PRIMER REGISTRO' && !isNaN(parseFloat(r.consumption)));
+  
+  const validRecords = records.filter(r => 
+    r.consumption !== 'PRIMER REGISTRO' && !isNaN(parseFloat(r.consumption))
+  );
+  
   if (validRecords.length > 0) {
     avgVal = validRecords.reduce((sum, r) => sum + parseFloat(r.consumption), 0) / validRecords.length;
   }
+  
   records.forEach(r => {
     const val = parseFloat(r.money || r.price || 0);
     totalMoney += isNaN(val) ? 0 : val;
@@ -229,27 +327,33 @@ function renderPagination(total) {
   const pages = Math.ceil(total / ITEMS_PER_PAGE);
   $pagination.innerHTML = '';
   if (pages <= 1) return;
+  
   for (let i = 1; i <= pages; i++) {
     const btn = document.createElement('button');
     btn.textContent = i;
     btn.style.fontWeight = i === currentPage ? 'bold' : 'normal';
-    btn.addEventListener('click', () => { currentPage = i; renderAll(); });
+    btn.addEventListener('click', () => { 
+      currentPage = i; 
+      renderAll(); 
+    });
     $pagination.appendChild(btn);
   }
 }
 
+// ==================== MODAL DE LOGIN ====================
 function showLoginModal() {
   document.getElementById('modal-title').textContent = 'Iniciar Sesión';
+  
   $fields.innerHTML = `
     <div style="margin-bottom:1rem;">
-      <label>Email</label>
+      <label style="display:block;font-weight:500;margin-bottom:0.3rem;">Email</label>
       <input type="email" id="auth-email" placeholder="tu@email.com" required 
-             style="width:100%;padding:0.5rem;margin-top:0.3rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);">
+             style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);">
     </div>
     <div style="margin-bottom:1rem;">
-      <label>Contraseña (mín. 6 caracteres)</label>
+      <label style="display:block;font-weight:500;margin-bottom:0.3rem;">Contraseña (mín. 6 caracteres)</label>
       <input type="password" id="auth-pass" placeholder="••••••••" minlength="6" required 
-             style="width:100%;padding:0.5rem;margin-top:0.3rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);">
+             style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);">
     </div>
     <div style="display:flex;gap:0.5rem;">
       <button type="button" id="auth-login" style="flex:1;padding:0.6rem;background:#dbeafe;color:#1d4ed8;border:none;border-radius:6px;cursor:pointer;font-weight:500;">Entrar</button>
@@ -258,6 +362,7 @@ function showLoginModal() {
     <p id="auth-error" style="color:#ef4444;font-size:0.85rem;margin-top:0.5rem;display:none;"></p>
     <p id="auth-loading" style="color:var(--text-sec);font-size:0.85rem;margin-top:0.5rem;display:none;">Procesando...</p>
   `;
+  
   $modal.showModal();
   
   const $error = document.getElementById('auth-error');
@@ -265,8 +370,8 @@ function showLoginModal() {
   const $loginBtn = document.getElementById('auth-login');
   const $signupBtn = document.getElementById('auth-signup');
   
-  // ✅ Función helper para manejar respuestas de Supabase
-  function handleSupabaseResponse(result, action) {
+  // Helper para manejar respuestas de Supabase
+  function handleResponse(result, action) {
     if (!result) {
       $error.textContent = 'Error de conexión. Verifica tu internet.';
       $error.style.display = 'block';
@@ -300,24 +405,33 @@ function showLoginModal() {
     
     try {
       const result = await window.db.signIn(email, pass);
-      if (handleSupabaseResponse(result, 'Login')) {
-        // El listener onAuthStateChange se encargará del resto
-        console.log('Login exitoso');
+      
+      if (handleResponse(result, 'Login')) {
+        console.log('✅ Login exitoso');
+        // Fallback manual si el listener no funciona
+        if (result.data?.user) {
+          currentUser = result.data.user;
+          localStorage.setItem('mototrack_user', JSON.stringify({ 
+            id: currentUser.id, 
+            email: currentUser.email 
+          }));
+          $modal.close();
+          loadData().then(() => {
+            renderAll();
+            $addBtn.style.display = 'flex';
+          }).catch(console.warn);
+        }
       } else {
-        $loading.style.display = 'none';
-        $loginBtn.disabled = false;
-        $signupBtn.disabled = false;
+        restoreButtons();
       }
     } catch (e) {
-      $error.textContent = 'Error inesperado: ' + e.message;
+      $error.textContent = 'Error: ' + e.message;
       $error.style.display = 'block';
-      $loading.style.display = 'none';
-      $loginBtn.disabled = false;
-      $signupBtn.disabled = false;
+      restoreButtons();
     }
   };
   
-  // ✅ REGISTRO (CORREGIDO)
+  // ✅ REGISTRO
   $signupBtn.onclick = async () => {
     const email = document.getElementById('auth-email').value.trim();
     const pass = document.getElementById('auth-pass').value;
@@ -328,7 +442,7 @@ function showLoginModal() {
       return;
     }
     if (pass.length < 6) {
-      $error.textContent = 'La contraseña debe tener al menos 6 caracteres';
+      $error.textContent = 'Mínimo 6 caracteres';
       $error.style.display = 'block';
       return;
     }
@@ -340,35 +454,50 @@ function showLoginModal() {
     $signupBtn.textContent = 'Creando...';
     
     try {
-      console.log('Intentando registrar:', email);
+      console.log('📝 Registrando:', email);
       const result = await window.db.signUp(email, pass);
-      console.log('Respuesta de signUp:', result);
+      console.log('Respuesta signUp:', result);
       
-      if (handleSupabaseResponse(result, 'Registro')) {
-        // ✅ Éxito: Supabase devuelve el usuario en result.data.user
-        console.log('Registro exitoso, usuario:', result.data?.user?.id);
-        // No cerramos el modal manualmente: el listener onAuthStateChange lo hará
+      if (handleResponse(result, 'Registro')) {
+        console.log('✅ Registro exitoso');
+        // Fallback manual si el listener no funciona
+        if (result.data?.user) {
+          currentUser = result.data.user;
+          localStorage.setItem('mototrack_user', JSON.stringify({ 
+            id: currentUser.id, 
+            email: currentUser.email 
+          }));
+          $modal.close();
+          loadData().then(() => {
+            renderAll();
+            $addBtn.style.display = 'flex';
+          }).catch(console.warn);
+        }
       } else {
-        // ❌ Error: restaurar botones
-        $loading.style.display = 'none';
-        $signupBtn.textContent = 'Registrarse';
-        $loginBtn.disabled = false;
-        $signupBtn.disabled = false;
+        restoreButtons();
       }
     } catch (e) {
-      console.error('Excepción en registro:', e);
+      console.error('Excepción registro:', e);
       $error.textContent = 'Error: ' + e.message;
       $error.style.display = 'block';
-      $loading.style.display = 'none';
-      $signupBtn.textContent = 'Registrarse';
-      $loginBtn.disabled = false;
-      $signupBtn.disabled = false;
+      restoreButtons();
     }
   };
+  
+  function restoreButtons() {
+    $loading.style.display = 'none';
+    $signupBtn.textContent = 'Registrarse';
+    $loginBtn.disabled = false;
+    $signupBtn.disabled = false;
+  }
 }
 
+// ==================== MODAL DE REGISTRO/EDICIÓN ====================
 function openModal(id = null) {
-  if (!currentUser) { showLoginModal(); return; }
+  if (!currentUser) { 
+    showLoginModal(); 
+    return; 
+  }
   
   editingId = id;
   const rec = id ? localCache[currentTab].find(r => r.id === id) : null;
@@ -397,14 +526,27 @@ function openModal(id = null) {
     const wrapper = document.createElement('div');
     wrapper.style.marginBottom = '0.75rem';
     wrapper.innerHTML = `<label style="display:block; margin-bottom:0.3rem; font-weight:500;">${f.label}</label>`;
+    
     if (f.type === 'select') {
       const sel = document.createElement('select');
-      sel.id = f.id; sel.required = true; sel.style.cssText = 'width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text);';
-      f.opts.forEach(o => { const opt = document.createElement('option'); opt.value = o; opt.textContent = o; if(o===f.val) opt.selected=true; sel.appendChild(opt); });
+      sel.id = f.id; 
+      sel.required = true; 
+      sel.style.cssText = 'width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text);';
+      f.opts.forEach(o => { 
+        const opt = document.createElement('option'); 
+        opt.value = o; 
+        opt.textContent = o; 
+        if(o === f.val) opt.selected = true; 
+        sel.appendChild(opt); 
+      });
       wrapper.appendChild(sel);
     } else {
       const inp = document.createElement('input');
-      inp.type = f.type; inp.id = f.id; inp.step = f.step || 'any'; inp.value = f.val; inp.required = true;
+      inp.type = f.type; 
+      inp.id = f.id; 
+      inp.step = f.step || 'any'; 
+      inp.value = f.val; 
+      inp.required = true;
       inp.style.cssText = 'width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text);';
       wrapper.appendChild(inp);
     }
@@ -414,9 +556,14 @@ function openModal(id = null) {
   $modal.showModal();
 }
 
+// ==================== GUARDAR REGISTRO ====================
 async function saveRecord(e) {
   e.preventDefault();
-  if (!currentUser) { showLoginModal(); return; }
+  
+  if (!currentUser) { 
+    showLoginModal(); 
+    return; 
+  }
   
   const data = {};
   $fields.querySelectorAll('input, select').forEach(el => data[el.id] = el.value);
@@ -432,40 +579,39 @@ async function saveRecord(e) {
   }
 
   try {
-    await window.db.saveRecord(currentTab === 'fuel' ? 'fuel' : 'maintenance', data);
-    await loadData(); // Recargar desde la nube
+    await window.db.saveRecord(
+      currentTab === 'fuel' ? 'fuel' : 'maintenance', 
+      data
+    );
+    await loadData();
     $modal.close();
   } catch (err) {
     alert('Error guardando: ' + err.message);
+    console.error('Save error:', err);
   }
 }
 
+// ==================== ELIMINAR REGISTRO ====================
 async function deleteRecord(id) {
   if (!confirm('¿Eliminar este registro?')) return;
-  if (!currentUser) { showLoginModal(); return; }
+  if (!currentUser) { 
+    showLoginModal(); 
+    return; 
+  }
   
   try {
-    await window.db.deleteRecord(currentTab === 'fuel' ? 'fuel' : 'maintenance', id);
+    await window.db.deleteRecord(
+      currentTab === 'fuel' ? 'fuel' : 'maintenance', 
+      id
+    );
     await loadData();
   } catch (err) {
     alert('Error eliminando: ' + err.message);
+    console.error('Delete error:', err);
   }
 }
 
-function recalculateAll() {
-  // Ya se hace en el backend al guardar, pero mantenemos para fallback offline
-  const sorted = localCache[currentTab].sort((a, b) => new Date(a.date) - new Date(b.date));
-  sorted.forEach((rec, i) => {
-    const prev = sorted[i - 1];
-    const odom = parseFloat(rec.odometer);
-    if (currentTab === 'fuel') {
-      rec.consumption = prev ? ((odom - parseFloat(prev.odometer)) / parseFloat(rec.liters || 1)).toFixed(2) : 'PRIMER REGISTRO';
-    } else {
-      rec.consumption = prev ? (odom - parseFloat(prev.odometer)).toFixed(2) : 'PRIMER REGISTRO';
-    }
-  });
-}
-
+// ==================== UTILIDADES ====================
 function getLocalDateTime() {
   const now = new Date();
   const offset = now.getTimezoneOffset();
@@ -475,11 +621,10 @@ function getLocalDateTime() {
 function formatDate(iso) { 
   if (!iso) return '';
   const d = new Date(iso);
-  // Forzar zona horaria de Cuba (UTC-5 / UTC-4)
   return d.toLocaleString('es-CU', { timeZone: 'America/Havana' });
 }
 
-// TEMAS
+// ==================== TEMA ====================
 function loadTheme() {
   const saved = localStorage.getItem('mototrack_theme');
   if (saved === 'dark' || saved === 'light') {
@@ -488,13 +633,18 @@ function loadTheme() {
     document.body.className = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
 }
+
 function toggleTheme() {
   const isDark = document.body.className === 'dark';
   document.body.className = isDark ? 'light' : 'dark';
   localStorage.setItem('mototrack_theme', document.body.className);
 }
 
-// SERVICE WORKER
+// ==================== SERVICE WORKER ====================
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => console.log('SW registrado:', reg.scope))
+      .catch(err => console.log('SW error:', err));
+  });
 }
