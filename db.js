@@ -1,4 +1,3 @@
-// 🔐 CONFIGURACIÓN SUPABASE - Versión Final Corregida
 (function() {
   'use strict';
   const SUPABASE_URL = 'https://dgfdtwmvyalofmszbnab.supabase.co';
@@ -28,30 +27,31 @@
     const user = await getUser();
     if (!user) return [];
     try {
-      const { data, error } = await supabaseClient.from('moto_records').select('*').eq('user_id', user.id).eq('record_type', recordType).order('date', { ascending: false });
+      const { data, error } = await supabaseClient
+        .from('moto_records')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('record_type', recordType)
+        .order('date', { ascending: false });
       if (error) throw error;
       return data || [];
-    } catch { return []; }
+    } catch (e) { console.warn('Error fetchRecords:', e); return []; }
   }
 
-  // ✅ Mapeo Seguro: Frontend (camelCase/type) → BD (snake_case/oil_type)
   function mapToDatabase(record, recType) {
     const m = { ...record };
-    if (recType === 'fuel' && m.pricePerL !== undefined) { 
-      m.price_per_liter = parseFloat(m.pricePerL); delete m.pricePerL; 
-    }
+    if (recType === 'fuel' && m.pricePerL !== undefined) { m.price_per_liter = parseFloat(m.pricePerL); delete m.pricePerL; }
     if (recType === 'maintenance') {
       if (m.type !== undefined) { m.oil_type = m.type; delete m.type; }
       if (m.oilType !== undefined) { m.oil_type = m.oilType; delete m.oilType; }
     }
-    if (m.odometer) m.odometer = parseFloat(m.odometer);
-    if (m.money) m.money = parseFloat(m.money);
-    if (m.liters) m.liters = parseFloat(m.liters);
-    if (m.price) m.price = parseFloat(m.price);
+    if (m.odometer !== undefined) m.odometer = parseFloat(m.odometer) || 0;
+    if (m.money !== undefined) m.money = parseFloat(m.money) || 0;
+    if (m.liters !== undefined) m.liters = parseFloat(m.liters) || 0;
+    if (m.price !== undefined) m.price = parseFloat(m.price) || 0;
     return m;
   }
 
-  // ✅ Mapeo Seguro: BD → Frontend
   function mapToFrontend(rec) {
     if (!rec) return null;
     return { ...rec, pricePerL: rec.price_per_liter, oilType: rec.oil_type };
@@ -110,5 +110,5 @@
     fetchRecords: async (t) => (await fetchRecords(t)).map(r => mapToFrontend(r)),
     saveRecord, deleteRecord, syncOfflineQueue: syncQueue, isOnline: () => isOnline
   };
-  console.log('✅ db.js cargado con mapeo corregido');
+  console.log('✅ db.js cargado');
 })();

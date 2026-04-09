@@ -1,4 +1,3 @@
-// 🏍️ MotoTrack - App.js (Versión Final Completa)
 let currentTab = 'fuel';
 let currentPage = 1;
 const ITEMS_PER_PAGE = 10;
@@ -24,10 +23,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function waitForDb(timeout = 5000) {
-  return new Promise((resolve) => {
-    if (window.db) { resolve(); return; }
+  return new Promise(resolve => {
+    if (window.db) return resolve();
     const start = Date.now();
-    const check = () => { if (window.db || Date.now() - start > timeout) resolve(); else setTimeout(check, 100); };
+    const check = () => window.db || Date.now() - start > timeout ? resolve() : setTimeout(check, 100);
     check();
   });
 }
@@ -40,7 +39,7 @@ async function checkAuth() {
         const user = await Promise.race([window.db.getCurrentUser(), new Promise(r => setTimeout(() => r(null), 3000))]);
         if (user) { currentUser = user; $addBtn.style.display = 'flex'; await loadData(); return; }
       }
-    } catch (e) { console.warn('Error auth:', e); }
+    } catch (e) { console.warn('Auth check error:', e); }
   }
   $addBtn.style.display = 'none';
   showLoginModal();
@@ -66,19 +65,27 @@ function setupAuthListener() {
   });
 }
 
+// ✅ CARGA ROBUSTA: Siempre refresca y re-renderiza
 async function loadData() {
-  if (!window.db) return;
+  if (!window.db) { renderAll(); return; }
   try {
-    let [fuel, maint] = await Promise.all([window.db.fetchRecords('fuel'), window.db.fetchRecords('maintenance')]);
+    const [fuel, maint] = await Promise.all([
+      window.db.fetchRecords('fuel'),
+      window.db.fetchRecords('maintenance')
+    ]);
     localCache.fuel = calculateConsumption(fuel, 'fuel');
     localCache.maint = calculateConsumption(maint, 'maint');
-    renderAll();
-  } catch (e) { console.warn('Error cargando:', e); renderAll(); }
+    renderAll(); // ✅ Forza actualización inmediata de la UI
+  } catch (e) {
+    console.error('❌ Error cargando datos:', e);
+    renderAll(); // Muestra lo que hay en caché si falla la red
+  }
 }
 
 function calculateConsumption(records, type) {
-  if (!records || records.length === 0) return [];
-  const sorted = [...records].sort((a, b) => new Date(a.date) - new Date(b.date));
+  if (!records?.length) return [];
+  // ✅ Safe sort por fecha
+  const sorted = [...records].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
   sorted.forEach((rec, i) => {
     const prev = sorted[i - 1];
     const odom = parseFloat(rec.odometer) || 0;
@@ -104,7 +111,7 @@ function setupEvents() {
     });
   });
 
-  $addBtn.addEventListener('click', () => { if (currentUser) openModal(); else showLoginModal(); });
+  $addBtn.addEventListener('click', () => currentUser ? openModal() : showLoginModal());
   document.getElementById('cancel-btn').addEventListener('click', () => { $modal.close(); editingId = null; $form.reset(); });
   $modal.addEventListener('close', () => { editingId = null; $form.reset(); });
   $form.addEventListener('submit', saveRecord);
@@ -113,15 +120,20 @@ function setupEvents() {
     const card = e.target.closest('[data-id]');
     if (!card) return;
     const id = card.dataset.id;
-    if (e.target.classList.contains('edit')) { if (currentUser) openModal(id); else showLoginModal(); }
-    if (e.target.classList.contains('delete')) { if (currentUser) deleteRecord(id); else showLoginModal(); }
+    if (e.target.classList.contains('edit')) currentUser ? openModal(id) : showLoginModal();
+    if (e.target.classList.contains('delete')) currentUser ? deleteRecord(id) : showLoginModal();
   });
   $themeBtn.addEventListener('click', toggleTheme);
 }
 
-function getRecords() { return (localCache[currentTab] || []).sort((a, b) => new Date(b.date) - new Date(a.date)); }
+function getRecords() { return (localCache[currentTab] || []).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)); }
 
-function renderAll() { const records = getRecords(); renderSummary(records); renderList(records); renderPagination(records.length); }
+function renderAll() {
+  const records = getRecords();
+  renderSummary(records);
+  renderList(records);
+  renderPagination(records.length);
+}
 
 function renderSummary(records) {
   let totalMoney = 0, avgVal = 0;
@@ -137,12 +149,14 @@ function renderList(records) {
   const start = (currentPage - 1) * ITEMS_PER_PAGE;
   const pageData = records.slice(start, start + ITEMS_PER_PAGE);
   $list.innerHTML = '';
-  if (pageData.length === 0) { $list.innerHTML = '<p style="text-align:center; padding: 2rem; color: var(--text-sec);">No hay registros aún. Toca + para agregar uno.</p>'; return; }
+  if (!pageData.length) { $list.innerHTML = '<p style="text-align:center; padding: 2rem; color: var(--text-sec);">No hay registros aún. Toca + para agregar uno.</p>'; return; }
 
   pageData.forEach(rec => {
     const priceL = rec.price_per_liter ?? rec.pricePerL ?? 0;
     const oilType = rec.oil_type ?? rec.oilType ?? rec.type ?? 'N/A';
-    const dinero = currentTab === 'fuel' ? (parseFloat(rec.money) || (parseFloat(rec.liters) * parseFloat(priceL))).toFixed(2) : parseFloat(rec.price).toFixed(2);
+    const dinero = currentTab === 'fuel' 
+      ? (parseFloat(rec.money) || (parseFloat(rec.liters) * parseFloat(priceL))).toFixed(2) 
+      : parseFloat(rec.price).toFixed(2);
 
     const fields = currentTab === 'fuel'
       ? `<div class="record-row"><span class="label"><span class="icon">📅</span>Fecha:</span><span class="value">${formatDate(rec.date)}</span></div>
@@ -174,6 +188,7 @@ function renderPagination(total) {
   }
 }
 
+// ... [showLoginModal y openModal se mantienen igual, pero incluyo openModal completo por seguridad] ...
 function showLoginModal() {
   document.getElementById('modal-title').textContent = 'Iniciar Sesión';
   $fields.innerHTML = `
@@ -198,13 +213,11 @@ function showLoginModal() {
     try {
       const res = await window.db.signIn(e, p);
       if (res?.data?.user) {
-        currentUser = res.data.user;
-        localStorage.setItem('mototrack_user', JSON.stringify({id:currentUser.id, email:currentUser.email}));
+        currentUser = res.data.user; localStorage.setItem('mototrack_user', JSON.stringify({id:currentUser.id, email:currentUser.email}));
         $modal.close(); loadData().then(()=>{renderAll();$addBtn.style.display='flex';});
-      } else { reset(); $err.textContent = res?.error?.message || 'Error inesperado'; $err.style.display='block'; }
+      } else { reset(); $err.textContent = res?.error?.message || 'Error'; $err.style.display='block'; }
     } catch(err) { reset(); $err.textContent = err.message; $err.style.display='block'; }
   };
-
   $regBtn.onclick = async () => {
     const e = document.getElementById('auth-email').value.trim(), p = document.getElementById('auth-pass').value;
     if (!e || !p) { $err.textContent='Ingresa email y contraseña'; $err.style.display='block'; return; }
@@ -213,10 +226,9 @@ function showLoginModal() {
     try {
       const res = await window.db.signUp(e, p);
       if (res?.data?.user) {
-        currentUser = res.data.user;
-        localStorage.setItem('mototrack_user', JSON.stringify({id:currentUser.id, email:currentUser.email}));
+        currentUser = res.data.user; localStorage.setItem('mototrack_user', JSON.stringify({id:currentUser.id, email:currentUser.email}));
         $modal.close(); loadData().then(()=>{renderAll();$addBtn.style.display='flex';});
-      } else { reset(); $err.textContent = res?.error?.message || 'Error inesperado'; $err.style.display='block'; }
+      } else { reset(); $err.textContent = res?.error?.message || 'Error'; $err.style.display='block'; }
     } catch(err) { reset(); $err.textContent = err.message; $err.style.display='block'; }
   };
 }
@@ -226,7 +238,7 @@ function openModal(id = null) {
   editingId = id;
   const rec = id ? localCache[currentTab].find(r => r.id === id) : null;
   document.getElementById('modal-title').textContent = id ? 'Editar Registro' : 'Nuevo Registro';
-  const now = getLocalDateTime();
+  const now = new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
   $fields.innerHTML = '';
 
   const safePriceL = rec?.price_per_liter ?? rec?.pricePerL ?? '';
@@ -234,13 +246,13 @@ function openModal(id = null) {
 
   const fieldsConfig = currentTab === 'fuel'
     ? [
-        { id: 'date', label: 'Fecha y hora', type: 'datetime-local', val: rec?.date || now },
+        { id: 'date', label: 'Fecha y hora', type: 'datetime-local', val: rec?.date?.slice(0,16) || now },
         { id: 'odometer', label: 'Odómetro (km)', type: 'number', val: rec?.odometer || '' },
         { id: 'liters', label: 'Litros', type: 'number', step: '0.01', val: rec?.liters || '' },
         { id: 'pricePerL', label: 'Precio por litro ($)', type: 'number', step: '0.01', val: safePriceL }
       ]
     : [
-        { id: 'date', label: 'Fecha y hora', type: 'datetime-local', val: rec?.date || now },
+        { id: 'date', label: 'Fecha y hora', type: 'datetime-local', val: rec?.date?.slice(0,16) || now },
         { id: 'odometer', label: 'Odómetro (km)', type: 'number', val: rec?.odometer || '' },
         { id: 'brand', label: 'Marca del aceite', type: 'text', val: rec?.brand || '' },
         { id: 'type', label: 'Tipo', type: 'select', opts: ['Sintético', 'Natural'], val: safeOilType },
@@ -268,48 +280,37 @@ function openModal(id = null) {
   $modal.showModal();
 }
 
+// ✅ GUARDAR Y ELIMINAR CON REFRESCO AUTOMÁTICO
 async function saveRecord(e) {
   e.preventDefault();
-  if (!currentUser) { showLoginModal(); return; }
+  if (!currentUser) return showLoginModal();
+  
   const data = {};
   $fields.querySelectorAll('input, select').forEach(el => data[el.id] = el.value);
-
   if (currentTab === 'fuel') {
-    data.id = editingId || 'new';
-    data.money = (parseFloat(data.liters) * parseFloat(data.pricePerL)).toFixed(2);
-    data.consumption = null;
+    data.id = editingId || 'new'; data.money = (parseFloat(data.liters)*parseFloat(data.pricePerL)).toFixed(2);
   } else {
-    data.id = editingId || 'new';
-    data.money = parseFloat(data.price).toFixed(2);
-    data.consumption = null;
+    data.id = editingId || 'new'; data.money = parseFloat(data.price).toFixed(2);
   }
 
   try {
     await window.db.saveRecord(currentTab === 'fuel' ? 'fuel' : 'maintenance', data);
-    await loadData();
+    await loadData(); // ✅ Refresca inmediatamente
     $modal.close();
-  } catch (err) { alert('Error guardando: ' + err.message); }
+  } catch (err) { alert('Error: ' + err.message); console.error(err); }
 }
 
 async function deleteRecord(id) {
   if (!confirm('¿Eliminar este registro?')) return;
-  if (!currentUser) { showLoginModal(); return; }
+  if (!currentUser) return showLoginModal();
   try {
     await window.db.deleteRecord(currentTab === 'fuel' ? 'fuel' : 'maintenance', id);
-    await loadData();
-  } catch (err) { alert('Error eliminando: ' + err.message); }
+    await loadData(); // ✅ Refresca inmediatamente
+  } catch (err) { alert('Error: ' + err.message); console.error(err); }
 }
 
-function getLocalDateTime() { const now = new Date(); return new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16); }
 function formatDate(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('es-CU', { timeZone: 'America/Havana' }); }
+function loadTheme() { document.body.className = localStorage.getItem('mototrack_theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); }
+function toggleTheme() { document.body.className = document.body.className === 'dark' ? 'light' : 'dark'; localStorage.setItem('mototrack_theme', document.body.className); }
 
-function loadTheme() {
-  const saved = localStorage.getItem('mototrack_theme');
-  document.body.className = saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-}
-function toggleTheme() {
-  document.body.className = document.body.className === 'dark' ? 'light' : 'dark';
-  localStorage.setItem('mototrack_theme', document.body.className);
-}
-
-if ('serviceWorker' in navigator) { window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js')); }
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
