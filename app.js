@@ -1,4 +1,4 @@
-// 🏍️ MotoTrack - App.js (Versión Final con Cálculo Automático)
+// 🏍️ MotoTrack - App.js (Versión Final Completa)
 let currentTab = 'fuel';
 let currentPage = 1;
 const ITEMS_PER_PAGE = 10;
@@ -15,7 +15,6 @@ const $fields = document.getElementById('form-fields');
 const $themeBtn = document.getElementById('theme-toggle');
 const $addBtn = document.getElementById('add-btn');
 
-// ==================== INICIALIZACIÓN ====================
 document.addEventListener('DOMContentLoaded', async () => {
   loadTheme();
   await waitForDb();
@@ -28,27 +27,18 @@ function waitForDb(timeout = 5000) {
   return new Promise((resolve) => {
     if (window.db) { resolve(); return; }
     const start = Date.now();
-    const check = () => {
-      if (window.db || Date.now() - start > timeout) resolve();
-      else setTimeout(check, 100);
-    };
+    const check = () => { if (window.db || Date.now() - start > timeout) resolve(); else setTimeout(check, 100); };
     check();
   });
 }
 
-// ==================== AUTENTICACIÓN ====================
 async function checkAuth() {
   const saved = localStorage.getItem('mototrack_user');
   if (saved) {
     try {
       if (window.db) {
         const user = await Promise.race([window.db.getCurrentUser(), new Promise(r => setTimeout(() => r(null), 3000))]);
-        if (user) {
-          currentUser = user;
-          $addBtn.style.display = 'flex';
-          await loadData();
-          return;
-        }
+        if (user) { currentUser = user; $addBtn.style.display = 'flex'; await loadData(); return; }
       }
     } catch (e) { console.warn('Error auth:', e); }
   }
@@ -76,23 +66,16 @@ function setupAuthListener() {
   });
 }
 
-// ==================== CARGA DE DATOS + CÁLCULO ====================
 async function loadData() {
   if (!window.db) return;
   try {
-    let [fuel, maint] = await Promise.all([
-      window.db.fetchRecords('fuel'),
-      window.db.fetchRecords('maintenance')
-    ]);
-
-    // ✅ Calcular consumos automáticamente al cargar
+    let [fuel, maint] = await Promise.all([window.db.fetchRecords('fuel'), window.db.fetchRecords('maintenance')]);
     localCache.fuel = calculateConsumption(fuel, 'fuel');
     localCache.maint = calculateConsumption(maint, 'maint');
     renderAll();
   } catch (e) { console.warn('Error cargando:', e); renderAll(); }
 }
 
-// ✅ Función que calcula consumo/intervalo y reemplaza 'PENDING'
 function calculateConsumption(records, type) {
   if (!records || records.length === 0) return [];
   const sorted = [...records].sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -100,7 +83,6 @@ function calculateConsumption(records, type) {
     const prev = sorted[i - 1];
     const odom = parseFloat(rec.odometer) || 0;
     const prevOdom = prev ? parseFloat(prev.odometer) || 0 : 0;
-
     if (type === 'fuel') {
       const liters = parseFloat(rec.liters) || 0;
       rec.consumption = prev && liters > 0 ? ((odom - prevOdom) / liters).toFixed(2) : 'PRIMER REGISTRO';
@@ -111,7 +93,6 @@ function calculateConsumption(records, type) {
   return records;
 }
 
-// ==================== EVENTOS ====================
 function setupEvents() {
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -127,7 +108,7 @@ function setupEvents() {
   document.getElementById('cancel-btn').addEventListener('click', () => { $modal.close(); editingId = null; $form.reset(); });
   $modal.addEventListener('close', () => { editingId = null; $form.reset(); });
   $form.addEventListener('submit', saveRecord);
-  
+
   $list.addEventListener('click', (e) => {
     const card = e.target.closest('[data-id]');
     if (!card) return;
@@ -135,54 +116,35 @@ function setupEvents() {
     if (e.target.classList.contains('edit')) { if (currentUser) openModal(id); else showLoginModal(); }
     if (e.target.classList.contains('delete')) { if (currentUser) deleteRecord(id); else showLoginModal(); }
   });
-
   $themeBtn.addEventListener('click', toggleTheme);
 }
 
-// ==================== RENDERIZADO ====================
-function getRecords() {
-  return (localCache[currentTab] || []).sort((a, b) => new Date(b.date) - new Date(a.date));
-}
+function getRecords() { return (localCache[currentTab] || []).sort((a, b) => new Date(b.date) - new Date(a.date)); }
 
-function renderAll() {
-  const records = getRecords();
-  renderSummary(records);
-  renderList(records);
-  renderPagination(records.length);
-}
+function renderAll() { const records = getRecords(); renderSummary(records); renderList(records); renderPagination(records.length); }
 
 function renderSummary(records) {
   let totalMoney = 0, avgVal = 0;
   const valid = records.filter(r => r.consumption !== 'PRIMER REGISTRO' && !isNaN(parseFloat(r.consumption)));
   if (valid.length > 0) avgVal = valid.reduce((s, r) => s + parseFloat(r.consumption), 0) / valid.length;
   records.forEach(r => totalMoney += parseFloat(r.money || r.price || 0) || 0);
-
   const label = currentTab === 'fuel' ? 'Promedio General KM/L' : 'Promedio General KM/Mant.';
   const moneyLabel = currentTab === 'fuel' ? 'Dinero invertido (combustible)' : 'Dinero invertido (aceite)';
-  $summary.innerHTML = `
-    <div class="summary-stat"><span>${avgVal.toFixed(2)}</span>${label}</div>
-    <div class="summary-stat"><span>$${totalMoney.toFixed(2)}</span>${moneyLabel}</div>
-  `;
+  $summary.innerHTML = `<div class="summary-stat"><span>${avgVal.toFixed(2)}</span>${label}</div><div class="summary-stat"><span>$${totalMoney.toFixed(2)}</span>${moneyLabel}</div>`;
 }
 
 function renderList(records) {
   const start = (currentPage - 1) * ITEMS_PER_PAGE;
   const pageData = records.slice(start, start + ITEMS_PER_PAGE);
   $list.innerHTML = '';
-  
-  if (pageData.length === 0) {
-    $list.innerHTML = '<p style="text-align:center; padding: 2rem; color: var(--text-sec);">No hay registros aún. Toca + para agregar uno.</p>';
-    return;
-  }
+  if (pageData.length === 0) { $list.innerHTML = '<p style="text-align:center; padding: 2rem; color: var(--text-sec);">No hay registros aún. Toca + para agregar uno.</p>'; return; }
 
   pageData.forEach(rec => {
     const priceL = rec.price_per_liter ?? rec.pricePerL ?? 0;
-    const oilType = rec.oil_type ?? rec.oilType ?? 'N/A';
-    const dinero = currentTab === 'fuel' 
-      ? (parseFloat(rec.money) || (parseFloat(rec.liters) * parseFloat(priceL))).toFixed(2)
-      : parseFloat(rec.price).toFixed(2);
+    const oilType = rec.oil_type ?? rec.oilType ?? rec.type ?? 'N/A';
+    const dinero = currentTab === 'fuel' ? (parseFloat(rec.money) || (parseFloat(rec.liters) * parseFloat(priceL))).toFixed(2) : parseFloat(rec.price).toFixed(2);
 
-    const fields = currentTab === 'fuel' 
+    const fields = currentTab === 'fuel'
       ? `<div class="record-row"><span class="label"><span class="icon">📅</span>Fecha:</span><span class="value">${formatDate(rec.date)}</span></div>
          <div class="record-row"><span class="label"><span class="icon">🛣️</span>Odómetro:</span><span class="value">${rec.odometer} km</span></div>
          <div class="record-row"><span class="label"><span class="icon">⛽</span>Litros:</span><span class="value">${rec.liters} L</span></div>
@@ -195,15 +157,7 @@ function renderList(records) {
          <div class="record-row"><span class="label"><span class="icon">💲</span>Precio:</span><span class="value">$${rec.price}</span></div>
          <div class="record-row"><span class="label"><span class="icon">🔧</span>Intervalo:</span><span class="value">${rec.consumption} KM</span></div>`;
 
-    $list.insertAdjacentHTML('beforeend', `
-      <article class="record-card" data-id="${rec.id}">
-        ${fields}
-        <div class="record-actions">
-          <button class="edit">Editar</button>
-          <button class="delete" style="background:#ef4444; color:white;">Eliminar</button>
-        </div>
-      </article>
-    `);
+    $list.insertAdjacentHTML('beforeend', `<article class="record-card" data-id="${rec.id}">${fields}<div class="record-actions"><button class="edit">Editar</button><button class="delete" style="background:#ef4444; color:white;">Eliminar</button></div></article>`);
   });
 }
 
@@ -220,7 +174,6 @@ function renderPagination(total) {
   }
 }
 
-// ==================== MODAL DE LOGIN ====================
 function showLoginModal() {
   document.getElementById('modal-title').textContent = 'Iniciar Sesión';
   $fields.innerHTML = `
@@ -234,7 +187,6 @@ function showLoginModal() {
     <p id="auth-loading" style="color:var(--text-sec);font-size:0.85rem;margin-top:0.5rem;display:none;">Procesando...</p>
   `;
   $modal.showModal();
-  
   const $err = document.getElementById('auth-error'), $load = document.getElementById('auth-loading');
   const $logBtn = document.getElementById('auth-login'), $regBtn = document.getElementById('auth-signup');
   const reset = () => { $load.style.display='none'; $logBtn.disabled=$regBtn.disabled=false; $regBtn.textContent='Registrarse'; };
@@ -269,19 +221,18 @@ function showLoginModal() {
   };
 }
 
-// ==================== MODAL DE REGISTRO ====================
 function openModal(id = null) {
   if (!currentUser) { showLoginModal(); return; }
   editingId = id;
   const rec = id ? localCache[currentTab].find(r => r.id === id) : null;
   document.getElementById('modal-title').textContent = id ? 'Editar Registro' : 'Nuevo Registro';
-
   const now = getLocalDateTime();
   $fields.innerHTML = '';
-  const safePriceL = rec?.price_per_liter ?? rec?.pricePerL ?? '';
-  const safeOilType = rec?.oil_type ?? rec?.oilType ?? 'Sintético';
 
-  const fieldsConfig = currentTab === 'fuel' 
+  const safePriceL = rec?.price_per_liter ?? rec?.pricePerL ?? '';
+  const safeOilType = rec?.oil_type ?? rec?.oilType ?? rec?.type ?? 'Sintético';
+
+  const fieldsConfig = currentTab === 'fuel'
     ? [
         { id: 'date', label: 'Fecha y hora', type: 'datetime-local', val: rec?.date || now },
         { id: 'odometer', label: 'Odómetro (km)', type: 'number', val: rec?.odometer || '' },
@@ -314,22 +265,19 @@ function openModal(id = null) {
     }
     $fields.appendChild(wrap);
   });
-
   $modal.showModal();
 }
 
-// ==================== GUARDAR / ELIMINAR ====================
 async function saveRecord(e) {
   e.preventDefault();
   if (!currentUser) { showLoginModal(); return; }
-  
   const data = {};
   $fields.querySelectorAll('input, select').forEach(el => data[el.id] = el.value);
-  
+
   if (currentTab === 'fuel') {
     data.id = editingId || 'new';
     data.money = (parseFloat(data.liters) * parseFloat(data.pricePerL)).toFixed(2);
-    data.consumption = null; // Se calcula al cargar
+    data.consumption = null;
   } else {
     data.id = editingId || 'new';
     data.money = parseFloat(data.price).toFixed(2);
@@ -352,16 +300,8 @@ async function deleteRecord(id) {
   } catch (err) { alert('Error eliminando: ' + err.message); }
 }
 
-// ==================== UTILIDADES ====================
-function getLocalDateTime() {
-  const now = new Date();
-  return new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
-}
-
-function formatDate(iso) { 
-  if (!iso) return '';
-  return new Date(iso).toLocaleString('es-CU', { timeZone: 'America/Havana' });
-}
+function getLocalDateTime() { const now = new Date(); return new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16); }
+function formatDate(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('es-CU', { timeZone: 'America/Havana' }); }
 
 function loadTheme() {
   const saved = localStorage.getItem('mototrack_theme');
@@ -372,6 +312,4 @@ function toggleTheme() {
   localStorage.setItem('mototrack_theme', document.body.className);
 }
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
-}
+if ('serviceWorker' in navigator) { window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js')); }
