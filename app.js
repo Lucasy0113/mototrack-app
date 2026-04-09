@@ -46,20 +46,29 @@ async function checkAuth() {
 }
 
 function setupAuthListener() {
-  // ✅ Protección: si db no existe, no hacer nada
   if (!window.db || !window.db.supabase) {
-    console.warn('Supabase no cargó, usando modo offline');
+    console.warn('Supabase no disponible');
     return;
   }
   
-  window.db.supabase.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'SIGNED_IN') {
+  console.log('🔐 Registrando listener de auth...');
+  
+  window.db.supabase.auth.onAuthStateChange((event, session) => {
+    console.log('🔄 Auth event:', event, session?.user?.id);
+    
+    if (event === 'SIGNED_IN' && session?.user) {
       currentUser = session.user;
-      localStorage.setItem('mototrack_user', JSON.stringify({ id: currentUser.id, email: currentUser.email }));
+      localStorage.setItem('mototrack_user', JSON.stringify({ 
+        id: currentUser.id, 
+        email: currentUser.email 
+      }));
+      console.log('✅ Usuario autenticado:', currentUser.email);
       $modal.close();
-      await loadData();
+      loadData().then(() => renderAll()).catch(console.warn);
       $addBtn.style.display = 'flex';
-    } else if (event === 'SIGNED_OUT') {
+    } 
+    else if (event === 'SIGNED_OUT') {
+      console.log('🚪 Usuario cerrado');
       currentUser = null;
       localCache = { fuel: [], maint: [] };
       renderAll();
@@ -232,36 +241,128 @@ function renderPagination(total) {
 function showLoginModal() {
   document.getElementById('modal-title').textContent = 'Iniciar Sesión';
   $fields.innerHTML = `
-    <div style="margin-bottom:1rem;"><label>Email</label><input type="email" id="auth-email" required style="width:100%;padding:0.5rem;margin-top:0.3rem;"></div>
-    <div style="margin-bottom:1rem;"><label>Contraseña</label><input type="password" id="auth-pass" required style="width:100%;padding:0.5rem;margin-top:0.3rem;"></div>
+    <div style="margin-bottom:1rem;">
+      <label>Email</label>
+      <input type="email" id="auth-email" placeholder="tu@email.com" required 
+             style="width:100%;padding:0.5rem;margin-top:0.3rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);">
+    </div>
+    <div style="margin-bottom:1rem;">
+      <label>Contraseña (mín. 6 caracteres)</label>
+      <input type="password" id="auth-pass" placeholder="••••••••" minlength="6" required 
+             style="width:100%;padding:0.5rem;margin-top:0.3rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);">
+    </div>
     <div style="display:flex;gap:0.5rem;">
-      <button type="button" id="auth-login" style="flex:1;padding:0.6rem;background:#dbeafe;color:#1d4ed8;border:none;border-radius:6px;cursor:pointer;">Entrar</button>
-      <button type="button" id="auth-signup" style="flex:1;padding:0.6rem;background:#fee2e2;color:#b91c1c;border:none;border-radius:6px;cursor:pointer;">Registrarse</button>
+      <button type="button" id="auth-login" style="flex:1;padding:0.6rem;background:#dbeafe;color:#1d4ed8;border:none;border-radius:6px;cursor:pointer;font-weight:500;">Entrar</button>
+      <button type="button" id="auth-signup" style="flex:1;padding:0.6rem;background:#fee2e2;color:#b91c1c;border:none;border-radius:6px;cursor:pointer;font-weight:500;">Registrarse</button>
     </div>
     <p id="auth-error" style="color:#ef4444;font-size:0.85rem;margin-top:0.5rem;display:none;"></p>
+    <p id="auth-loading" style="color:var(--text-sec);font-size:0.85rem;margin-top:0.5rem;display:none;">Procesando...</p>
   `;
   $modal.showModal();
   
-  document.getElementById('auth-login').onclick = async () => {
-    const email = document.getElementById('auth-email').value;
+  const $error = document.getElementById('auth-error');
+  const $loading = document.getElementById('auth-loading');
+  const $loginBtn = document.getElementById('auth-login');
+  const $signupBtn = document.getElementById('auth-signup');
+  
+  // ✅ Función helper para manejar respuestas de Supabase
+  function handleSupabaseResponse(result, action) {
+    if (!result) {
+      $error.textContent = 'Error de conexión. Verifica tu internet.';
+      $error.style.display = 'block';
+      return false;
+    }
+    const { data, error } = result;
+    if (error) {
+      $error.textContent = `${action}: ${error.message}`;
+      $error.style.display = 'block';
+      console.warn(`${action} error:`, error);
+      return false;
+    }
+    return true;
+  }
+  
+  // ✅ LOGIN
+  $loginBtn.onclick = async () => {
+    const email = document.getElementById('auth-email').value.trim();
     const pass = document.getElementById('auth-pass').value;
+    
+    if (!email || !pass) {
+      $error.textContent = 'Ingresa email y contraseña';
+      $error.style.display = 'block';
+      return;
+    }
+    
+    $error.style.display = 'none';
+    $loading.style.display = 'block';
+    $loginBtn.disabled = true;
+    $signupBtn.disabled = true;
+    
     try {
-      await window.db.signIn(email, pass);
+      const result = await window.db.signIn(email, pass);
+      if (handleSupabaseResponse(result, 'Login')) {
+        // El listener onAuthStateChange se encargará del resto
+        console.log('Login exitoso');
+      } else {
+        $loading.style.display = 'none';
+        $loginBtn.disabled = false;
+        $signupBtn.disabled = false;
+      }
     } catch (e) {
-      document.getElementById('auth-error').textContent = 'Error: ' + e.message;
-      document.getElementById('auth-error').style.display = 'block';
+      $error.textContent = 'Error inesperado: ' + e.message;
+      $error.style.display = 'block';
+      $loading.style.display = 'none';
+      $loginBtn.disabled = false;
+      $signupBtn.disabled = false;
     }
   };
   
-  document.getElementById('auth-signup').onclick = async () => {
-    const email = document.getElementById('auth-email').value;
+  // ✅ REGISTRO (CORREGIDO)
+  $signupBtn.onclick = async () => {
+    const email = document.getElementById('auth-email').value.trim();
     const pass = document.getElementById('auth-pass').value;
+    
+    if (!email || !pass) {
+      $error.textContent = 'Ingresa email y contraseña';
+      $error.style.display = 'block';
+      return;
+    }
+    if (pass.length < 6) {
+      $error.textContent = 'La contraseña debe tener al menos 6 caracteres';
+      $error.style.display = 'block';
+      return;
+    }
+    
+    $error.style.display = 'none';
+    $loading.style.display = 'block';
+    $loginBtn.disabled = true;
+    $signupBtn.disabled = true;
+    $signupBtn.textContent = 'Creando...';
+    
     try {
-      await window.db.signUp(email, pass);
-      // El listener onAuthStateChange se encargará del resto
+      console.log('Intentando registrar:', email);
+      const result = await window.db.signUp(email, pass);
+      console.log('Respuesta de signUp:', result);
+      
+      if (handleSupabaseResponse(result, 'Registro')) {
+        // ✅ Éxito: Supabase devuelve el usuario en result.data.user
+        console.log('Registro exitoso, usuario:', result.data?.user?.id);
+        // No cerramos el modal manualmente: el listener onAuthStateChange lo hará
+      } else {
+        // ❌ Error: restaurar botones
+        $loading.style.display = 'none';
+        $signupBtn.textContent = 'Registrarse';
+        $loginBtn.disabled = false;
+        $signupBtn.disabled = false;
+      }
     } catch (e) {
-      document.getElementById('auth-error').textContent = 'Error: ' + e.message;
-      document.getElementById('auth-error').style.display = 'block';
+      console.error('Excepción en registro:', e);
+      $error.textContent = 'Error: ' + e.message;
+      $error.style.display = 'block';
+      $loading.style.display = 'none';
+      $signupBtn.textContent = 'Registrarse';
+      $loginBtn.disabled = false;
+      $signupBtn.disabled = false;
     }
   };
 }
