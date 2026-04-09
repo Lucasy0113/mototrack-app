@@ -1,0 +1,112 @@
+:root {
+  --bg: #f8fafc; --card: #ffffff; --text: #0f172a;
+  --text-sec: #475569; --primary: #2563eb; --primary-hover: #1d4ed8;
+  --border: #e2e8f0; --shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f172a; --card: #1e293b; --text: #f1f5f9;
+          --text-sec: #94a3b8; --border: #334155; --shadow: 0 2px 8px rgba(0,0,0,0.3); }
+}
+body.dark { --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; --text-sec: #94a3b8; --border: #334155; }
+body.light { --bg: #f8fafc; --card: #ffffff; --text: #0f172a; --text-sec: #475569; --border: #e2e8f0; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+body { background: var(--bg); color: var(--text); transition: background 0.3s, color 0.3s; }
+header { padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem; border-bottom: 1px solid var(--border); }
+.tabs { display: flex; gap: 0.5rem; }
+.tab-btn, .modal-actions button, .pagination button { padding: 0.6rem 1rem; border: none; background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+.tab-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+#theme-toggle { position: absolute; top: 1rem; right: 1rem; background: transparent; border: none; font-size: 1.2rem; cursor: pointer; }
+main { padding: 1rem; max-width: 800px; margin: 0 auto; }
+
+.summary-card { background: var(--card); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; box-shadow: var(--shadow); display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-around; font-weight: 500; }
+.summary-stat { text-align: center; }
+.summary-stat span { display: block; font-size: 1.2rem; color: var(--primary); }
+
+.list-container { display: flex; flex-direction: column; gap: 0.75rem; min-height: 300px; }
+.record-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; box-shadow: var(--shadow); }
+.record-row { display: flex; justify-content: space-between; padding: 0.25rem 0; border-bottom: 1px dashed var(--border); }
+.record-row:last-child { border: none; }
+.record-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.record-actions button { padding: 0.3rem 0.6rem; font-size: 0.8rem; background: var(--border); border: none; border-radius: 4px; cursor: pointer; }
+
+.pagination { display: flex; justify-content: center; gap: 0.5rem; margin-top: 1rem; }
+.fab { position: fixed; bottom: 1.5rem; right: 1.5rem; width: 56px; height: 56px; border-radius: 50%; background: var(--primary); color: white; border: none; font-size: 2rem; box-shadow: var(--shadow); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+
+dialog { margin: auto; background: var(--card); color: var(--text); border: none; border-radius: 10px; padding: 1.5rem; box-shadow: var(--shadow); max-width: 400px; width: 90%; }
+dialog::backdrop { background: rgba(0,0,0,0.5); }
+#form-fields { display: flex; flex-direction: column; gap: 0.75rem; margin: 1rem 0; }
+input { padding: 0.6rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+
+@media (min-width: 768px) { header { flex-direction: row; align-items: center; justify-content: space-between; } .tabs { margin-left: auto; } }
+
+/* Estructura y alineación de registros */
+.record-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px dashed var(--border);
+  gap: 0.5rem;
+}
+.record-row:last-child { border-bottom: none; }
+.label { 
+  display: flex; 
+  align-items: center; 
+  gap: 0.4rem; 
+  color: var(--text-sec); 
+  font-weight: 500; 
+  flex: 1;
+}
+.value { 
+  font-weight: 600; 
+  text-align: right; 
+  white-space: nowrap;
+}
+.icon { 
+  font-size: 1.15em; 
+  line-height: 1; 
+  display: inline-block;
+}
+/* Fila destacada de dinero */
+.money-row { 
+  background: color-mix(in srgb, var(--primary) 8%, transparent); 
+  border-radius: 6px; 
+  margin: 0.3rem 0;
+  padding: 0.5rem !important;
+}
+.money-row .label, .money-row .value { color: var(--primary); font-weight: 700; }
+
+/* Botones del modal con colores suaves */
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+.modal-actions button {
+  padding: 0.6rem 1.2rem;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.95rem;
+  border: none;
+}
+
+/* Botón Cancelar: rojo claro */
+#cancel-btn {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+#cancel-btn:hover { background: #fecaca; transform: translateY(-1px); }
+
+/* Botón Guardar/Aceptar: azul claro */
+.modal-actions button[type="submit"] {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+.modal-actions button[type="submit"]:hover { background: #bfdbfe; transform: translateY(-1px); }

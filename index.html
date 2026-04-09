@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)">
+  <title>MotoTrack</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>🏍️ MotoTrack</h1>
+    <button id="theme-toggle" title="Cambiar tema">🌗</button>
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="fuel">⛽ Combustible</button>
+      <button class="tab-btn" data-tab="maint">🔧 Mantenimiento</button>
+    </nav>
+  </header>
+
+  <main id="app">
+    <section id="summary" class="summary-card"></section>
+    <section id="list-container" class="list-container"></section>
+    <div id="pagination" class="pagination"></div>
+  </main>
+
+  <button id="add-btn" class="fab" aria-label="Agregar registro">+</button>
+
+  <dialog id="modal">
+    <form id="record-form">
+      <h2 id="modal-title">Nuevo Registro</h2>
+      <div id="form-fields"></div>
+      <div class="modal-actions">
+        <button type="button" id="cancel-btn">Cancelar</button>
+        <button type="submit">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js?v=5"></script>
+</body>
+</html>
