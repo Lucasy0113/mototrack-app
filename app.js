@@ -5,28 +5,23 @@ let editingId = null;
 let currentUser = null;
 let localCache = { fuel: [], maint: [] };
 
-const $summary = document.getElementById('summary');
-const $list = document.getElementById('list-container');
-const $pagination = document.getElementById('pagination');
-const $modal = document.getElementById('modal');
-const $form = document.getElementById('record-form');
-const $fields = document.getElementById('form-fields');
-const $themeBtn = document.getElementById('theme-toggle');
-const $addBtn = document.getElementById('add-btn');
-const $loadingOverlay = document.getElementById('loading-overlay');
-const $submitBtn = $form?.querySelector('button[type="submit"]');
-
-// 🔄 Control de carga
-function showLoading() {
-  $loadingOverlay?.classList.add('active');
-  if ($submitBtn) $submitBtn.disabled = true;
-}
-function hideLoading() {
-  $loadingOverlay?.classList.remove('active');
-  if ($submitBtn) $submitBtn.disabled = false;
-}
+// Referencias se llenarán después de que el DOM esté listo
+let $summary, $list, $pagination, $modal, $form, $fields, $themeBtn, $addBtn;
+let $loadingOverlay, $submitBtn;
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // ✅ Buscar elementos SOLO después de que el HTML esté renderizado
+  $summary = document.getElementById('summary');
+  $list = document.getElementById('list-container');
+  $pagination = document.getElementById('pagination');
+  $modal = document.getElementById('modal');
+  $form = document.getElementById('record-form');
+  $fields = document.getElementById('form-fields');
+  $themeBtn = document.getElementById('theme-toggle');
+  $addBtn = document.getElementById('add-btn');
+  $loadingOverlay = document.getElementById('loading-overlay');
+  $submitBtn = $form?.querySelector('button[type="submit"]');
+
   loadTheme();
   await waitForDb();
   setupAuthListener();
@@ -34,6 +29,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   await checkAuth();
   setupEvents();
 });
+
+// 🔄 Control de carga (seguro)
+function showLoading() {
+  if ($loadingOverlay) $loadingOverlay.classList.add('active');
+  if ($submitBtn) { $submitBtn.disabled = true; $submitBtn.textContent = '⏳ Guardando...'; }
+}
+function hideLoading() {
+  if ($loadingOverlay) $loadingOverlay.classList.remove('active');
+  if ($submitBtn) { $submitBtn.disabled = false; $submitBtn.textContent = 'Guardar'; }
+}
 
 function waitForDb(timeout = 5000) {
   return new Promise(resolve => {
@@ -50,12 +55,13 @@ async function checkAuth() {
     try {
       if (window.db) {
         const user = await Promise.race([window.db.getCurrentUser(), new Promise(r => setTimeout(() => r(null), 3000))]);
-        if (user) { currentUser = user; $addBtn.style.display = 'flex'; await loadData(); return; }
+        if (user) { currentUser = user; if($addBtn)$addBtn.style.display = 'flex'; await loadData(); return; }
       }
     } catch (e) { console.warn('Auth check error:', e); }
   }
-  $addBtn.style.display = 'none';
-  if (document.getElementById('user-menu-btn')) document.getElementById('user-menu-btn').style.display = 'none';
+  if($addBtn)$addBtn.style.display = 'none';
+  const userBtn = document.getElementById('user-menu-btn');
+  if (userBtn) userBtn.style.display = 'none';
   showLoginModal();
   renderAll();
 }
@@ -66,19 +72,20 @@ function setupAuthListener() {
     if (event === 'SIGNED_IN' && session?.user) {
       currentUser = session.user;
       localStorage.setItem('mototrack_user', JSON.stringify({ id: currentUser.id, email: currentUser.email }));
-      if ($modal.open) $modal.close();
+      if ($modal && $modal.open) $modal.close();
       const userBtn = document.getElementById('user-menu-btn');
       if (userBtn) userBtn.style.display = 'flex';
-      loadData().then(() => { renderAll(); $addBtn.style.display = 'flex'; }).catch(console.warn);
+      if($addBtn)$addBtn.style.display = 'flex';
+      loadData().then(() => renderAll()).catch(console.warn);
     } else if (event === 'SIGNED_OUT') {
       currentUser = null;
       localCache = { fuel: [], maint: [] };
       localStorage.removeItem('mototrack_user');
       const userBtn = document.getElementById('user-menu-btn');
       if (userBtn) userBtn.style.display = 'none';
+      if($addBtn)$addBtn.style.display = 'none';
       renderAll();
       showLoginModal();
-      $addBtn.style.display = 'none';
     }
   });
 }
@@ -97,67 +104,53 @@ function setupUserMenu() {
   
   $userMenuBtn.addEventListener('click', () => {
     if (currentUser) {
-      $userEmailDisplay.textContent = currentUser.email;
-      document.getElementById('current-pass').value = '';
-      document.getElementById('new-pass').value = '';
-      document.getElementById('confirm-pass').value = '';
-      $passMsg.textContent = '';
-      $passMsg.className = 'msg';
-      $drawer.classList.add('open');
+      if($userEmailDisplay) $userEmailDisplay.textContent = currentUser.email;
+      const cp = document.getElementById('current-pass'), np = document.getElementById('new-pass'), cnp = document.getElementById('confirm-pass');
+      if(cp) cp.value=''; if(np) np.value=''; if(cnp) cnp.value='';
+      if($passMsg) { $passMsg.textContent = ''; $passMsg.className = 'msg'; }
+      if($drawer) $drawer.classList.add('open');
     }
   });
 
-  const closeDrawer = () => $drawer.classList.remove('open');
+  const closeDrawer = () => $drawer?.classList.remove('open');
   $closeDrawer?.addEventListener('click', closeDrawer);
   $drawerOverlay?.addEventListener('click', closeDrawer);
 
   $passForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const currentPass = document.getElementById('current-pass').value;
-    const newPass = document.getElementById('new-pass').value;
-    const confirmPass = document.getElementById('confirm-pass').value;
+    const currentPass = document.getElementById('current-pass')?.value;
+    const newPass = document.getElementById('new-pass')?.value;
+    const confirmPass = document.getElementById('confirm-pass')?.value;
 
-    $passMsg.textContent = '⏳ Verificando contraseña actual...';
-    $passMsg.className = 'msg';
+    if($passMsg) { $passMsg.textContent = '⏳ Verificando...'; $passMsg.className = 'msg'; }
 
     if (newPass !== confirmPass) {
-      $passMsg.textContent = '❌ Las nuevas contraseñas no coinciden';
-      $passMsg.className = 'msg error'; return;
+      if($passMsg) { $passMsg.textContent = '❌ No coinciden'; $passMsg.className = 'msg error'; } return;
     }
     if (currentPass === newPass) {
-      $passMsg.textContent = '❌ La nueva contraseña debe ser diferente a la actual';
-      $passMsg.className = 'msg error'; return;
+      if($passMsg) { $passMsg.textContent = '❌ Debe ser diferente'; $passMsg.className = 'msg error'; } return;
     }
 
     showLoading();
     try {
-      const { error: authError } = await window.db.supabase.auth.signInWithPassword({
-        email: currentUser.email, password: currentPass
-      });
+      const { error: authError } = await window.db.supabase.auth.signInWithPassword({ email: currentUser.email, password: currentPass });
       if (authError) throw new Error('Contraseña actual incorrecta');
 
-      $passMsg.textContent = '⏳ Guardando nueva contraseña...';
       const { error: updateError } = await window.db.supabase.auth.updateUser({ password: newPass });
       if (updateError) throw updateError;
 
-      $passMsg.textContent = '✅ Contraseña actualizada correctamente';
-      $passMsg.className = 'msg success';
-      document.getElementById('current-pass').value = '';
-      document.getElementById('new-pass').value = '';
-      document.getElementById('confirm-pass').value = '';
+      if($passMsg) { $passMsg.textContent = '✅ Contraseña actualizada'; $passMsg.className = 'msg success'; }
+      const cp = document.getElementById('current-pass'), np = document.getElementById('new-pass'), cnp = document.getElementById('confirm-pass');
+      if(cp) cp.value=''; if(np) np.value=''; if(cnp) cnp.value='';
     } catch (err) {
-      $passMsg.textContent = '❌ ' + (err.message || 'Error al actualizar');
-      $passMsg.className = 'msg error';
+      if($passMsg) { $passMsg.textContent = '❌ ' + (err.message || 'Error'); $passMsg.className = 'msg error'; }
     } finally {
       hideLoading();
     }
   });
 
   $logoutBtn?.addEventListener('click', async () => {
-    if (confirm('¿Cerrar sesión?')) {
-      await window.db.signOut();
-      closeDrawer();
-    }
+    if (confirm('¿Cerrar sesión?')) { await window.db.signOut(); closeDrawer(); }
   });
 }
 
@@ -199,19 +192,19 @@ function setupEvents() {
     });
   });
 
-  $addBtn.addEventListener('click', () => currentUser ? openModal() : showLoginModal());
-  document.getElementById('cancel-btn').addEventListener('click', () => { $modal.close(); editingId = null; $form.reset(); });
-  $modal.addEventListener('close', () => { editingId = null; $form.reset(); });
-  $form.addEventListener('submit', saveRecord);
+  $addBtn?.addEventListener('click', () => currentUser ? openModal() : showLoginModal());
+  document.getElementById('cancel-btn')?.addEventListener('click', () => { $modal?.close(); editingId = null; $form?.reset(); });
+  $modal?.addEventListener('close', () => { editingId = null; $form?.reset(); });
+  $form?.addEventListener('submit', saveRecord);
 
-  $list.addEventListener('click', (e) => {
+  $list?.addEventListener('click', (e) => {
     const card = e.target.closest('[data-id]');
     if (!card) return;
     const id = card.dataset.id;
     if (e.target.classList.contains('edit')) currentUser ? openModal(id) : showLoginModal();
     if (e.target.classList.contains('delete')) currentUser ? deleteRecord(id) : showLoginModal();
   });
-  $themeBtn.addEventListener('click', toggleTheme);
+  $themeBtn?.addEventListener('click', toggleTheme);
 }
 
 function getRecords() { return (localCache[currentTab] || []).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)); }
@@ -224,10 +217,11 @@ function renderSummary(records) {
   records.forEach(r => totalMoney += parseFloat(r.money || r.price || 0) || 0);
   const label = currentTab === 'fuel' ? 'Promedio General KM/L' : 'Promedio General KM/Mant.';
   const moneyLabel = currentTab === 'fuel' ? 'Dinero invertido (combustible)' : 'Dinero invertido (aceite)';
-  $summary.innerHTML = `<div class="summary-stat"><span>${avgVal.toFixed(2)}</span>${label}</div><div class="summary-stat"><span>$${totalMoney.toFixed(2)}</span>${moneyLabel}</div>`;
+  if($summary) $summary.innerHTML = `<div class="summary-stat"><span>${avgVal.toFixed(2)}</span>${label}</div><div class="summary-stat"><span>$${totalMoney.toFixed(2)}</span>${moneyLabel}</div>`;
 }
 
 function renderList(records) {
+  if(!$list) return;
   const start = (currentPage - 1) * ITEMS_PER_PAGE;
   const pageData = records.slice(start, start + ITEMS_PER_PAGE);
   $list.innerHTML = '';
@@ -256,6 +250,7 @@ function renderList(records) {
 }
 
 function renderPagination(total) {
+  if(!$pagination) return;
   const pages = Math.ceil(total / ITEMS_PER_PAGE);
   $pagination.innerHTML = '';
   if (pages <= 1) return;
@@ -273,7 +268,7 @@ function showLoginModal() {
   if (modalActions) modalActions.style.display = 'none';
 
   document.getElementById('modal-title').textContent = 'Iniciar Sesión';
-  $fields.innerHTML = `
+  if($fields) $fields.innerHTML = `
     <div style="margin-bottom:1rem;"><label style="display:block;font-weight:500;margin-bottom:0.3rem;">Email</label><input type="email" id="auth-email" placeholder="tu@email.com" required style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);"></div>
     <div style="margin-bottom:1rem;"><label style="display:block;font-weight:500;margin-bottom:0.3rem;">Contraseña (mín. 6)</label><input type="password" id="auth-pass" placeholder="••••••••" minlength="6" required style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);"></div>
     <div style="display:flex;gap:0.5rem;">
@@ -283,7 +278,7 @@ function showLoginModal() {
     <p id="auth-error" style="color:#ef4444;font-size:0.85rem;margin-top:0.5rem;display:none;"></p>
     <p id="auth-loading" style="color:var(--text-sec);font-size:0.85rem;margin-top:0.5rem;display:none;">Procesando...</p>
   `;
-  $modal.showModal();
+  $modal?.showModal();
   
   const $err = document.getElementById('auth-error'), $load = document.getElementById('auth-loading');
   const $logBtn = document.getElementById('auth-login'), $regBtn = document.getElementById('auth-signup');
@@ -295,7 +290,7 @@ function showLoginModal() {
     $err.style.display='none'; $load.style.display='block'; $logBtn.disabled=$regBtn.disabled=true;
     try {
       const res = await window.db.signIn(e, p);
-      if (res?.data?.user) { currentUser = res.data.user; localStorage.setItem('mototrack_user', JSON.stringify({id:currentUser.id, email:currentUser.email})); $modal.close(); loadData().then(()=>{renderAll();$addBtn.style.display='flex';}); }
+      if (res?.data?.user) { currentUser = res.data.user; localStorage.setItem('mototrack_user', JSON.stringify({id:currentUser.id, email:currentUser.email})); $modal?.close(); loadData().then(()=>{renderAll(); if($addBtn)$addBtn.style.display='flex';}); }
       else { reset(); $err.textContent = res?.error?.message || 'Error'; $err.style.display='block'; }
     } catch(err) { reset(); $err.textContent = err.message; $err.style.display='block'; }
   };
@@ -306,7 +301,7 @@ function showLoginModal() {
     $err.style.display='none'; $load.style.display='block'; $logBtn.disabled=$regBtn.disabled=true; $regBtn.textContent='Creando...';
     try {
       const res = await window.db.signUp(e, p);
-      if (res?.data?.user) { currentUser = res.data.user; localStorage.setItem('mototrack_user', JSON.stringify({id:currentUser.id, email:currentUser.email})); $modal.close(); loadData().then(()=>{renderAll();$addBtn.style.display='flex';}); }
+      if (res?.data?.user) { currentUser = res.data.user; localStorage.setItem('mototrack_user', JSON.stringify({id:currentUser.id, email:currentUser.email})); $modal?.close(); loadData().then(()=>{renderAll(); if($addBtn)$addBtn.style.display='flex';}); }
       else { reset(); $err.textContent = res?.error?.message || 'Error'; $err.style.display='block'; }
     } catch(err) { reset(); $err.textContent = err.message; $err.style.display='block'; }
   };
@@ -319,9 +314,9 @@ function openModal(id = null) {
 
   editingId = id;
   const rec = id ? localCache[currentTab].find(r => r.id === id) : null;
-  document.getElementById('modal-title').textContent = id ? 'Editar Registro' : 'Nuevo Registro';
+  if(document.getElementById('modal-title')) document.getElementById('modal-title').textContent = id ? 'Editar Registro' : 'Nuevo Registro';
   const now = new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
-  $fields.innerHTML = '';
+  if($fields) $fields.innerHTML = '';
 
   const safePriceL = rec?.price_per_liter ?? rec?.pricePerL ?? '';
   const safeOilType = rec?.oil_type ?? rec?.oilType ?? rec?.type ?? 'Sintético';
@@ -357,9 +352,9 @@ function openModal(id = null) {
       inp.style.cssText = 'width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text);';
       wrap.appendChild(inp);
     }
-    $fields.appendChild(wrap);
+    $fields?.appendChild(wrap);
   });
-  $modal.showModal();
+  $modal?.showModal();
 }
 
 async function saveRecord(e) {
@@ -367,7 +362,7 @@ async function saveRecord(e) {
   if (!currentUser) return showLoginModal();
   
   const data = {};
-  $fields.querySelectorAll('input, select').forEach(el => data[el.id] = el.value);
+  $fields?.querySelectorAll('input, select').forEach(el => data[el.id] = el.value);
   
   showLoading();
   try {
@@ -380,7 +375,7 @@ async function saveRecord(e) {
     }
     await window.db.saveRecord(currentTab === 'fuel' ? 'fuel' : 'maintenance', data); 
     await loadData(); 
-    $modal.close();
+    $modal?.close();
   } catch (err) { 
     alert('Error: ' + err.message); 
     console.error(err); 

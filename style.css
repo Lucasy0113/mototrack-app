@@ -181,15 +181,15 @@ header { padding-left: 3.5rem; }
 .msg { font-size: 0.85rem; margin-top: 0.4rem; min-height: 1.2em; }
 .msg.success { color: #16a34a; }
 .msg.error { color: #ef4444; }
-/* 🔄 Loading Overlay */
+/* 🔄 Loading Overlay (Forzado para evitar conflictos) */
 .loading-overlay {
   position: fixed; inset: 0; z-index: 10000;
-  background: rgba(15, 23, 42, 0.7); display: none;
+  background: rgba(15, 23, 42, 0.75); display: none !important;
   flex-direction: column; align-items: center; justify-content: center;
   color: #f8fafc; font-size: 1.1rem; gap: 1rem; font-weight: 500;
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(3px);
 }
-.loading-overlay.active { display: flex; }
+.loading-overlay.active { display: flex !important; }
 
 .loading-spinner {
   width: 48px; height: 48px;
