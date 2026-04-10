@@ -13,16 +13,18 @@ const $form = document.getElementById('record-form');
 const $fields = document.getElementById('form-fields');
 const $themeBtn = document.getElementById('theme-toggle');
 const $addBtn = document.getElementById('add-btn');
+const $loadingOverlay = document.getElementById('loading-overlay');
+const $submitBtn = $form?.querySelector('button[type="submit"]');
 
-// User Menu DOM
-const $userMenuBtn = document.getElementById('user-menu-btn');
-const $drawer = document.getElementById('user-drawer');
-const $closeDrawer = document.getElementById('close-drawer');
-const $drawerOverlay = document.querySelector('.drawer-overlay');
-const $userEmailDisplay = document.getElementById('user-email-display');
-const $passForm = document.getElementById('change-pass-form');
-const $passMsg = document.getElementById('pass-msg');
-const $logoutBtn = document.getElementById('logout-btn');
+// 🔄 Control de carga
+function showLoading() {
+  $loadingOverlay?.classList.add('active');
+  if ($submitBtn) $submitBtn.disabled = true;
+}
+function hideLoading() {
+  $loadingOverlay?.classList.remove('active');
+  if ($submitBtn) $submitBtn.disabled = false;
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
   loadTheme();
@@ -53,7 +55,7 @@ async function checkAuth() {
     } catch (e) { console.warn('Auth check error:', e); }
   }
   $addBtn.style.display = 'none';
-  if ($userMenuBtn) $userMenuBtn.style.display = 'none';
+  if (document.getElementById('user-menu-btn')) document.getElementById('user-menu-btn').style.display = 'none';
   showLoginModal();
   renderAll();
 }
@@ -65,13 +67,15 @@ function setupAuthListener() {
       currentUser = session.user;
       localStorage.setItem('mototrack_user', JSON.stringify({ id: currentUser.id, email: currentUser.email }));
       if ($modal.open) $modal.close();
-      $userMenuBtn.style.display = 'flex';
+      const userBtn = document.getElementById('user-menu-btn');
+      if (userBtn) userBtn.style.display = 'flex';
       loadData().then(() => { renderAll(); $addBtn.style.display = 'flex'; }).catch(console.warn);
     } else if (event === 'SIGNED_OUT') {
       currentUser = null;
       localCache = { fuel: [], maint: [] };
       localStorage.removeItem('mototrack_user');
-      $userMenuBtn.style.display = 'none';
+      const userBtn = document.getElementById('user-menu-btn');
+      if (userBtn) userBtn.style.display = 'none';
       renderAll();
       showLoginModal();
       $addBtn.style.display = 'none';
@@ -79,14 +83,21 @@ function setupAuthListener() {
   });
 }
 
-// 👤 Menú de Usuario + Cambio de Contraseña Seguro
 function setupUserMenu() {
+  const $userMenuBtn = document.getElementById('user-menu-btn');
+  const $drawer = document.getElementById('user-drawer');
+  const $closeDrawer = document.getElementById('close-drawer');
+  const $drawerOverlay = document.querySelector('.drawer-overlay');
+  const $userEmailDisplay = document.getElementById('user-email-display');
+  const $passForm = document.getElementById('change-pass-form');
+  const $passMsg = document.getElementById('pass-msg');
+  const $logoutBtn = document.getElementById('logout-btn');
+
   if (!$userMenuBtn) return;
   
   $userMenuBtn.addEventListener('click', () => {
     if (currentUser) {
       $userEmailDisplay.textContent = currentUser.email;
-      // Limpiar campos
       document.getElementById('current-pass').value = '';
       document.getElementById('new-pass').value = '';
       document.getElementById('confirm-pass').value = '';
@@ -97,10 +108,10 @@ function setupUserMenu() {
   });
 
   const closeDrawer = () => $drawer.classList.remove('open');
-  $closeDrawer.addEventListener('click', closeDrawer);
-  $drawerOverlay.addEventListener('click', closeDrawer);
+  $closeDrawer?.addEventListener('click', closeDrawer);
+  $drawerOverlay?.addEventListener('click', closeDrawer);
 
-  $passForm.addEventListener('submit', async (e) => {
+  $passForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const currentPass = document.getElementById('current-pass').value;
     const newPass = document.getElementById('new-pass').value;
@@ -118,15 +129,13 @@ function setupUserMenu() {
       $passMsg.className = 'msg error'; return;
     }
 
+    showLoading();
     try {
-      // 1. Verificar contraseña actual re-autenticando
       const { error: authError } = await window.db.supabase.auth.signInWithPassword({
-        email: currentUser.email,
-        password: currentPass
+        email: currentUser.email, password: currentPass
       });
       if (authError) throw new Error('Contraseña actual incorrecta');
 
-      // 2. Actualizar contraseña
       $passMsg.textContent = '⏳ Guardando nueva contraseña...';
       const { error: updateError } = await window.db.supabase.auth.updateUser({ password: newPass });
       if (updateError) throw updateError;
@@ -139,10 +148,12 @@ function setupUserMenu() {
     } catch (err) {
       $passMsg.textContent = '❌ ' + (err.message || 'Error al actualizar');
       $passMsg.className = 'msg error';
+    } finally {
+      hideLoading();
     }
   });
 
-  $logoutBtn.addEventListener('click', async () => {
+  $logoutBtn?.addEventListener('click', async () => {
     if (confirm('¿Cerrar sesión?')) {
       await window.db.signOut();
       closeDrawer();
@@ -258,7 +269,6 @@ function renderPagination(total) {
 }
 
 function showLoginModal() {
-  // ✅ Ocultar botones "Cancelar/Guardar" del modal de registros
   const modalActions = document.querySelector('.modal-actions');
   if (modalActions) modalActions.style.display = 'none';
 
@@ -304,13 +314,11 @@ function showLoginModal() {
 
 function openModal(id = null) {
   if (!currentUser) { showLoginModal(); return; }
-  editingId = id;
-  const rec = id ? localCache[currentTab].find(r => r.id === id) : null;
-  
-  // ✅ Mostrar botones "Cancelar/Guardar" solo para registros de moto
   const modalActions = document.querySelector('.modal-actions');
   if (modalActions) modalActions.style.display = 'flex';
 
+  editingId = id;
+  const rec = id ? localCache[currentTab].find(r => r.id === id) : null;
   document.getElementById('modal-title').textContent = id ? 'Editar Registro' : 'Nuevo Registro';
   const now = new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
   $fields.innerHTML = '';
@@ -357,20 +365,43 @@ function openModal(id = null) {
 async function saveRecord(e) {
   e.preventDefault();
   if (!currentUser) return showLoginModal();
+  
   const data = {};
   $fields.querySelectorAll('input, select').forEach(el => data[el.id] = el.value);
-  if (currentTab === 'fuel') { data.id = editingId || 'new'; data.money = (parseFloat(data.liters)*parseFloat(data.pricePerL)).toFixed(2); }
-  else { data.id = editingId || 'new'; data.money = parseFloat(data.price).toFixed(2); }
-
-  try { await window.db.saveRecord(currentTab === 'fuel' ? 'fuel' : 'maintenance', data); await loadData(); $modal.close(); }
-  catch (err) { alert('Error: ' + err.message); console.error(err); }
+  
+  showLoading();
+  try {
+    if (currentTab === 'fuel') { 
+      data.id = editingId || 'new'; 
+      data.money = (parseFloat(data.liters)*parseFloat(data.pricePerL)).toFixed(2); 
+    } else { 
+      data.id = editingId || 'new'; 
+      data.money = parseFloat(data.price).toFixed(2); 
+    }
+    await window.db.saveRecord(currentTab === 'fuel' ? 'fuel' : 'maintenance', data); 
+    await loadData(); 
+    $modal.close();
+  } catch (err) { 
+    alert('Error: ' + err.message); 
+    console.error(err); 
+  } finally {
+    hideLoading();
+  }
 }
 
 async function deleteRecord(id) {
   if (!confirm('¿Eliminar este registro?')) return;
   if (!currentUser) return showLoginModal();
-  try { await window.db.deleteRecord(currentTab === 'fuel' ? 'fuel' : 'maintenance', id); await loadData(); }
-  catch (err) { alert('Error: ' + err.message); console.error(err); }
+  showLoading();
+  try { 
+    await window.db.deleteRecord(currentTab === 'fuel' ? 'fuel' : 'maintenance', id); 
+    await loadData(); 
+  } catch (err) { 
+    alert('Error: ' + err.message); 
+    console.error(err); 
+  } finally {
+    hideLoading();
+  }
 }
 
 function formatDate(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('es-CU', { timeZone: 'America/Havana' }); }
