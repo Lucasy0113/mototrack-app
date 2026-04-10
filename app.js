@@ -258,6 +258,10 @@ function renderPagination(total) {
 }
 
 function showLoginModal() {
+  // ✅ Ocultar botones "Cancelar/Guardar" del modal de registros
+  const modalActions = document.querySelector('.modal-actions');
+  if (modalActions) modalActions.style.display = 'none';
+
   document.getElementById('modal-title').textContent = 'Iniciar Sesión';
   $fields.innerHTML = `
     <div style="margin-bottom:1rem;"><label style="display:block;font-weight:500;margin-bottom:0.3rem;">Email</label><input type="email" id="auth-email" placeholder="tu@email.com" required style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);"></div>
@@ -270,6 +274,7 @@ function showLoginModal() {
     <p id="auth-loading" style="color:var(--text-sec);font-size:0.85rem;margin-top:0.5rem;display:none;">Procesando...</p>
   `;
   $modal.showModal();
+  
   const $err = document.getElementById('auth-error'), $load = document.getElementById('auth-loading');
   const $logBtn = document.getElementById('auth-login'), $regBtn = document.getElementById('auth-signup');
   const reset = () => { $load.style.display='none'; $logBtn.disabled=$regBtn.disabled=false; $regBtn.textContent='Registrarse'; };
@@ -301,6 +306,11 @@ function openModal(id = null) {
   if (!currentUser) { showLoginModal(); return; }
   editingId = id;
   const rec = id ? localCache[currentTab].find(r => r.id === id) : null;
+  
+  // ✅ Mostrar botones "Cancelar/Guardar" solo para registros de moto
+  const modalActions = document.querySelector('.modal-actions');
+  if (modalActions) modalActions.style.display = 'flex';
+
   document.getElementById('modal-title').textContent = id ? 'Editar Registro' : 'Nuevo Registro';
   const now = new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
   $fields.innerHTML = '';
