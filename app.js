@@ -10,7 +10,6 @@ let $summary, $list, $pagination, $modal, $form, $fields, $themeBtn, $addBtn;
 let $loadingOverlay, $submitBtn;
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // ✅ Buscar elementos SOLO después de que el HTML esté renderizado
   $summary = document.getElementById('summary');
   $list = document.getElementById('list-container');
   $pagination = document.getElementById('pagination');
@@ -30,7 +29,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupEvents();
 });
 
-// 🔄 Control de carga (seguro)
 function showLoading() {
   if ($loadingOverlay) $loadingOverlay.classList.add('active');
   if ($submitBtn) { $submitBtn.disabled = true; $submitBtn.textContent = '⏳ Guardando...'; }
@@ -144,9 +142,7 @@ function setupUserMenu() {
       if(cp) cp.value=''; if(np) np.value=''; if(cnp) cnp.value='';
     } catch (err) {
       if($passMsg) { $passMsg.textContent = '❌ ' + (err.message || 'Error'); $passMsg.className = 'msg error'; }
-    } finally {
-      hideLoading();
-    }
+    } finally { hideLoading(); }
   });
 
   $logoutBtn?.addEventListener('click', async () => {
@@ -158,24 +154,30 @@ async function loadData() {
   if (!window.db) { renderAll(); return; }
   try {
     const [fuel, maint] = await Promise.all([window.db.fetchRecords('fuel'), window.db.fetchRecords('maintenance')]);
-    localCache.fuel = calculateConsumption(fuel, 'fuel');
-    localCache.maint = calculateConsumption(maint, 'maint');
+    localCache.fuel = calculateMetrics(fuel, 'fuel');
+    localCache.maint = calculateMetrics(maint, 'maint');
     renderAll();
   } catch (e) { console.error('❌ Error cargando:', e); renderAll(); }
 }
 
-function calculateConsumption(records, type) {
+// ✅ Cálculo de Consumo e Intervalo
+function calculateMetrics(records, type) {
   if (!records?.length) return [];
   const sorted = [...records].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+  
   sorted.forEach((rec, i) => {
     const prev = sorted[i - 1];
     const odom = parseFloat(rec.odometer) || 0;
     const prevOdom = prev ? parseFloat(prev.odometer) || 0 : 0;
+    const diff = odom - prevOdom;
+
     if (type === 'fuel') {
       const liters = parseFloat(rec.liters) || 0;
-      rec.consumption = prev && liters > 0 ? ((odom - prevOdom) / liters).toFixed(2) : 'PRIMER REGISTRO';
+      rec.consumption = prev && liters > 0 ? (diff / liters).toFixed(2) : 'PRIMER REGISTRO';
+      rec.interval = prev ? diff.toFixed(2) : 'PRIMER REGISTRO'; // ✅ Nuevo cálculo
     } else {
-      rec.consumption = prev ? (odom - prevOdom).toFixed(2) : 'PRIMER REGISTRO';
+      rec.consumption = prev ? diff.toFixed(2) : 'PRIMER REGISTRO';
+      rec.interval = rec.consumption; // Compatibilidad visual
     }
   });
   return records;
@@ -238,6 +240,7 @@ function renderList(records) {
          <div class="record-row"><span class="label"><span class="icon">⛽</span>Litros:</span><span class="value">${rec.liters} L</span></div>
          <div class="record-row"><span class="label"><span class="icon">💲</span>Precio/L:</span><span class="value">$${priceL}</span></div>
          <div class="record-row money-row"><span class="label"><span class="icon">💰</span>Dinero gastado:</span><span class="value">$${dinero}</span></div>
+         <div class="record-row"><span class="label"><span class="icon">🔧</span>Intervalo:</span><span class="value">${rec.interval} KM</span></div>
          <div class="record-row"><span class="label"><span class="icon">🏁</span>Consumo:</span><span class="value">${rec.consumption} KM/L</span></div>`
       : `<div class="record-row"><span class="label"><span class="icon">📅</span>Fecha:</span><span class="value">${formatDate(rec.date)}</span></div>
          <div class="record-row"><span class="label"><span class="icon">🛣️</span>Odómetro:</span><span class="value">${rec.odometer} km</span></div>
@@ -379,9 +382,7 @@ async function saveRecord(e) {
   } catch (err) { 
     alert('Error: ' + err.message); 
     console.error(err); 
-  } finally {
-    hideLoading();
-  }
+  } finally { hideLoading(); }
 }
 
 async function deleteRecord(id) {
@@ -394,9 +395,7 @@ async function deleteRecord(id) {
   } catch (err) { 
     alert('Error: ' + err.message); 
     console.error(err); 
-  } finally {
-    hideLoading();
-  }
+  } finally { hideLoading(); }
 }
 
 function formatDate(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('es-CU', { timeZone: 'America/Havana' }); }
