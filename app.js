@@ -5,7 +5,6 @@ let editingId = null;
 let currentUser = null;
 let localCache = { fuel: [], maint: [] };
 
-// DOM Elements
 const $summary = document.getElementById('summary');
 const $list = document.getElementById('list-container');
 const $pagination = document.getElementById('pagination');
@@ -22,8 +21,6 @@ const $closeDrawer = document.getElementById('close-drawer');
 const $drawerOverlay = document.querySelector('.drawer-overlay');
 const $userEmailDisplay = document.getElementById('user-email-display');
 const $passForm = document.getElementById('change-pass-form');
-const $newPass = document.getElementById('new-pass');
-const $confirmPass = document.getElementById('confirm-pass');
 const $passMsg = document.getElementById('pass-msg');
 const $logoutBtn = document.getElementById('logout-btn');
 
@@ -31,7 +28,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadTheme();
   await waitForDb();
   setupAuthListener();
-  setupUserMenu(); // ✅ Inicializar menú de usuario
+  setupUserMenu();
   await checkAuth();
   setupEvents();
 });
@@ -82,15 +79,17 @@ function setupAuthListener() {
   });
 }
 
-// 👤 Lógica del Menú de Usuario
+// 👤 Menú de Usuario + Cambio de Contraseña Seguro
 function setupUserMenu() {
   if (!$userMenuBtn) return;
   
   $userMenuBtn.addEventListener('click', () => {
     if (currentUser) {
       $userEmailDisplay.textContent = currentUser.email;
-      $newPass.value = '';
-      $confirmPass.value = '';
+      // Limpiar campos
+      document.getElementById('current-pass').value = '';
+      document.getElementById('new-pass').value = '';
+      document.getElementById('confirm-pass').value = '';
       $passMsg.textContent = '';
       $passMsg.className = 'msg';
       $drawer.classList.add('open');
@@ -103,18 +102,40 @@ function setupUserMenu() {
 
   $passForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const p1 = $newPass.value, p2 = $confirmPass.value;
-    if (p1 !== p2) {
-      $passMsg.textContent = '❌ Las contraseñas no coinciden';
+    const currentPass = document.getElementById('current-pass').value;
+    const newPass = document.getElementById('new-pass').value;
+    const confirmPass = document.getElementById('confirm-pass').value;
+
+    $passMsg.textContent = '⏳ Verificando contraseña actual...';
+    $passMsg.className = 'msg';
+
+    if (newPass !== confirmPass) {
+      $passMsg.textContent = '❌ Las nuevas contraseñas no coinciden';
       $passMsg.className = 'msg error'; return;
     }
-    $passMsg.textContent = '⏳ Actualizando...';
+    if (currentPass === newPass) {
+      $passMsg.textContent = '❌ La nueva contraseña debe ser diferente a la actual';
+      $passMsg.className = 'msg error'; return;
+    }
+
     try {
-      const { error } = await window.db.supabase.auth.updateUser({ password: p1 });
-      if (error) throw error;
+      // 1. Verificar contraseña actual re-autenticando
+      const { error: authError } = await window.db.supabase.auth.signInWithPassword({
+        email: currentUser.email,
+        password: currentPass
+      });
+      if (authError) throw new Error('Contraseña actual incorrecta');
+
+      // 2. Actualizar contraseña
+      $passMsg.textContent = '⏳ Guardando nueva contraseña...';
+      const { error: updateError } = await window.db.supabase.auth.updateUser({ password: newPass });
+      if (updateError) throw updateError;
+
       $passMsg.textContent = '✅ Contraseña actualizada correctamente';
       $passMsg.className = 'msg success';
-      $newPass.value = ''; $confirmPass.value = '';
+      document.getElementById('current-pass').value = '';
+      document.getElementById('new-pass').value = '';
+      document.getElementById('confirm-pass').value = '';
     } catch (err) {
       $passMsg.textContent = '❌ ' + (err.message || 'Error al actualizar');
       $passMsg.className = 'msg error';

@@ -21,8 +21,9 @@
     <hr class="drawer-divider">
     <h3 style="margin:0 0 0.5rem;">Cambiar Contraseña</h3>
     <form id="change-pass-form">
+      <input type="password" id="current-pass" placeholder="Contraseña actual" required minlength="6">
       <input type="password" id="new-pass" placeholder="Nueva contraseña" required minlength="6">
-      <input type="password" id="confirm-pass" placeholder="Confirmar contraseña" required minlength="6">
+      <input type="password" id="confirm-pass" placeholder="Confirmar nueva contraseña" required minlength="6">
       <button type="submit" class="btn-primary">Actualizar</button>
       <p id="pass-msg" class="msg"></p>
     </form>
