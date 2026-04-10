@@ -9,6 +9,29 @@
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="style.css">
 </head>
+<!-- 👤 Botón y Panel de Usuario -->
+<button id="user-menu-btn" class="user-menu-btn" aria-label="Menú de usuario">👤</button>
+
+<div id="user-drawer" class="drawer">
+  <div class="drawer-content">
+    <button id="close-drawer" class="close-btn">&times;</button>
+    <h2 style="margin:0 0 0.5rem;">Mi Cuenta</h2>
+    <p id="user-email-display" class="user-info"></p>
+    
+    <hr class="drawer-divider">
+    <h3 style="margin:0 0 0.5rem;">Cambiar Contraseña</h3>
+    <form id="change-pass-form">
+      <input type="password" id="new-pass" placeholder="Nueva contraseña" required minlength="6">
+      <input type="password" id="confirm-pass" placeholder="Confirmar contraseña" required minlength="6">
+      <button type="submit" class="btn-primary">Actualizar</button>
+      <p id="pass-msg" class="msg"></p>
+    </form>
+    
+    <hr class="drawer-divider">
+    <button id="logout-btn" class="btn-danger">🚪 Cerrar Sesión</button>
+  </div>
+  <div class="drawer-overlay"></div>
+</div>
 <body>
   <header>
     <h1>🏍️ MotoTrack</h1>
@@ -40,6 +63,6 @@
   <!-- Supabase Client (CDN ligero) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="db.js?v=6"></script>
-  <script src="app.js?v=16"></script>
+  <script src="app.js?v=17"></script>
 </body>
 </html>

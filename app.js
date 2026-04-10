@@ -5,6 +5,7 @@ let editingId = null;
 let currentUser = null;
 let localCache = { fuel: [], maint: [] };
 
+// DOM Elements
 const $summary = document.getElementById('summary');
 const $list = document.getElementById('list-container');
 const $pagination = document.getElementById('pagination');
@@ -14,10 +15,23 @@ const $fields = document.getElementById('form-fields');
 const $themeBtn = document.getElementById('theme-toggle');
 const $addBtn = document.getElementById('add-btn');
 
+// User Menu DOM
+const $userMenuBtn = document.getElementById('user-menu-btn');
+const $drawer = document.getElementById('user-drawer');
+const $closeDrawer = document.getElementById('close-drawer');
+const $drawerOverlay = document.querySelector('.drawer-overlay');
+const $userEmailDisplay = document.getElementById('user-email-display');
+const $passForm = document.getElementById('change-pass-form');
+const $newPass = document.getElementById('new-pass');
+const $confirmPass = document.getElementById('confirm-pass');
+const $passMsg = document.getElementById('pass-msg');
+const $logoutBtn = document.getElementById('logout-btn');
+
 document.addEventListener('DOMContentLoaded', async () => {
   loadTheme();
   await waitForDb();
   setupAuthListener();
+  setupUserMenu(); // ✅ Inicializar menú de usuario
   await checkAuth();
   setupEvents();
 });
@@ -42,6 +56,7 @@ async function checkAuth() {
     } catch (e) { console.warn('Auth check error:', e); }
   }
   $addBtn.style.display = 'none';
+  if ($userMenuBtn) $userMenuBtn.style.display = 'none';
   showLoginModal();
   renderAll();
 }
@@ -53,11 +68,13 @@ function setupAuthListener() {
       currentUser = session.user;
       localStorage.setItem('mototrack_user', JSON.stringify({ id: currentUser.id, email: currentUser.email }));
       if ($modal.open) $modal.close();
+      $userMenuBtn.style.display = 'flex';
       loadData().then(() => { renderAll(); $addBtn.style.display = 'flex'; }).catch(console.warn);
     } else if (event === 'SIGNED_OUT') {
       currentUser = null;
       localCache = { fuel: [], maint: [] };
       localStorage.removeItem('mototrack_user');
+      $userMenuBtn.style.display = 'none';
       renderAll();
       showLoginModal();
       $addBtn.style.display = 'none';
@@ -65,26 +82,65 @@ function setupAuthListener() {
   });
 }
 
-// ✅ CARGA ROBUSTA: Siempre refresca y re-renderiza
+// 👤 Lógica del Menú de Usuario
+function setupUserMenu() {
+  if (!$userMenuBtn) return;
+  
+  $userMenuBtn.addEventListener('click', () => {
+    if (currentUser) {
+      $userEmailDisplay.textContent = currentUser.email;
+      $newPass.value = '';
+      $confirmPass.value = '';
+      $passMsg.textContent = '';
+      $passMsg.className = 'msg';
+      $drawer.classList.add('open');
+    }
+  });
+
+  const closeDrawer = () => $drawer.classList.remove('open');
+  $closeDrawer.addEventListener('click', closeDrawer);
+  $drawerOverlay.addEventListener('click', closeDrawer);
+
+  $passForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const p1 = $newPass.value, p2 = $confirmPass.value;
+    if (p1 !== p2) {
+      $passMsg.textContent = '❌ Las contraseñas no coinciden';
+      $passMsg.className = 'msg error'; return;
+    }
+    $passMsg.textContent = '⏳ Actualizando...';
+    try {
+      const { error } = await window.db.supabase.auth.updateUser({ password: p1 });
+      if (error) throw error;
+      $passMsg.textContent = '✅ Contraseña actualizada correctamente';
+      $passMsg.className = 'msg success';
+      $newPass.value = ''; $confirmPass.value = '';
+    } catch (err) {
+      $passMsg.textContent = '❌ ' + (err.message || 'Error al actualizar');
+      $passMsg.className = 'msg error';
+    }
+  });
+
+  $logoutBtn.addEventListener('click', async () => {
+    if (confirm('¿Cerrar sesión?')) {
+      await window.db.signOut();
+      closeDrawer();
+    }
+  });
+}
+
 async function loadData() {
   if (!window.db) { renderAll(); return; }
   try {
-    const [fuel, maint] = await Promise.all([
-      window.db.fetchRecords('fuel'),
-      window.db.fetchRecords('maintenance')
-    ]);
+    const [fuel, maint] = await Promise.all([window.db.fetchRecords('fuel'), window.db.fetchRecords('maintenance')]);
     localCache.fuel = calculateConsumption(fuel, 'fuel');
     localCache.maint = calculateConsumption(maint, 'maint');
-    renderAll(); // ✅ Forza actualización inmediata de la UI
-  } catch (e) {
-    console.error('❌ Error cargando datos:', e);
-    renderAll(); // Muestra lo que hay en caché si falla la red
-  }
+    renderAll();
+  } catch (e) { console.error('❌ Error cargando:', e); renderAll(); }
 }
 
 function calculateConsumption(records, type) {
   if (!records?.length) return [];
-  // ✅ Safe sort por fecha
   const sorted = [...records].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
   sorted.forEach((rec, i) => {
     const prev = sorted[i - 1];
@@ -127,13 +183,7 @@ function setupEvents() {
 }
 
 function getRecords() { return (localCache[currentTab] || []).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)); }
-
-function renderAll() {
-  const records = getRecords();
-  renderSummary(records);
-  renderList(records);
-  renderPagination(records.length);
-}
+function renderAll() { const records = getRecords(); renderSummary(records); renderList(records); renderPagination(records.length); }
 
 function renderSummary(records) {
   let totalMoney = 0, avgVal = 0;
@@ -154,9 +204,7 @@ function renderList(records) {
   pageData.forEach(rec => {
     const priceL = rec.price_per_liter ?? rec.pricePerL ?? 0;
     const oilType = rec.oil_type ?? rec.oilType ?? rec.type ?? 'N/A';
-    const dinero = currentTab === 'fuel' 
-      ? (parseFloat(rec.money) || (parseFloat(rec.liters) * parseFloat(priceL))).toFixed(2) 
-      : parseFloat(rec.price).toFixed(2);
+    const dinero = currentTab === 'fuel' ? (parseFloat(rec.money) || (parseFloat(rec.liters) * parseFloat(priceL))).toFixed(2) : parseFloat(rec.price).toFixed(2);
 
     const fields = currentTab === 'fuel'
       ? `<div class="record-row"><span class="label"><span class="icon">📅</span>Fecha:</span><span class="value">${formatDate(rec.date)}</span></div>
@@ -188,7 +236,6 @@ function renderPagination(total) {
   }
 }
 
-// ... [showLoginModal y openModal se mantienen igual, pero incluyo openModal completo por seguridad] ...
 function showLoginModal() {
   document.getElementById('modal-title').textContent = 'Iniciar Sesión';
   $fields.innerHTML = `
@@ -212,10 +259,8 @@ function showLoginModal() {
     $err.style.display='none'; $load.style.display='block'; $logBtn.disabled=$regBtn.disabled=true;
     try {
       const res = await window.db.signIn(e, p);
-      if (res?.data?.user) {
-        currentUser = res.data.user; localStorage.setItem('mototrack_user', JSON.stringify({id:currentUser.id, email:currentUser.email}));
-        $modal.close(); loadData().then(()=>{renderAll();$addBtn.style.display='flex';});
-      } else { reset(); $err.textContent = res?.error?.message || 'Error'; $err.style.display='block'; }
+      if (res?.data?.user) { currentUser = res.data.user; localStorage.setItem('mototrack_user', JSON.stringify({id:currentUser.id, email:currentUser.email})); $modal.close(); loadData().then(()=>{renderAll();$addBtn.style.display='flex';}); }
+      else { reset(); $err.textContent = res?.error?.message || 'Error'; $err.style.display='block'; }
     } catch(err) { reset(); $err.textContent = err.message; $err.style.display='block'; }
   };
   $regBtn.onclick = async () => {
@@ -225,10 +270,8 @@ function showLoginModal() {
     $err.style.display='none'; $load.style.display='block'; $logBtn.disabled=$regBtn.disabled=true; $regBtn.textContent='Creando...';
     try {
       const res = await window.db.signUp(e, p);
-      if (res?.data?.user) {
-        currentUser = res.data.user; localStorage.setItem('mototrack_user', JSON.stringify({id:currentUser.id, email:currentUser.email}));
-        $modal.close(); loadData().then(()=>{renderAll();$addBtn.style.display='flex';});
-      } else { reset(); $err.textContent = res?.error?.message || 'Error'; $err.style.display='block'; }
+      if (res?.data?.user) { currentUser = res.data.user; localStorage.setItem('mototrack_user', JSON.stringify({id:currentUser.id, email:currentUser.email})); $modal.close(); loadData().then(()=>{renderAll();$addBtn.style.display='flex';}); }
+      else { reset(); $err.textContent = res?.error?.message || 'Error'; $err.style.display='block'; }
     } catch(err) { reset(); $err.textContent = err.message; $err.style.display='block'; }
   };
 }
@@ -280,33 +323,23 @@ function openModal(id = null) {
   $modal.showModal();
 }
 
-// ✅ GUARDAR Y ELIMINAR CON REFRESCO AUTOMÁTICO
 async function saveRecord(e) {
   e.preventDefault();
   if (!currentUser) return showLoginModal();
-  
   const data = {};
   $fields.querySelectorAll('input, select').forEach(el => data[el.id] = el.value);
-  if (currentTab === 'fuel') {
-    data.id = editingId || 'new'; data.money = (parseFloat(data.liters)*parseFloat(data.pricePerL)).toFixed(2);
-  } else {
-    data.id = editingId || 'new'; data.money = parseFloat(data.price).toFixed(2);
-  }
+  if (currentTab === 'fuel') { data.id = editingId || 'new'; data.money = (parseFloat(data.liters)*parseFloat(data.pricePerL)).toFixed(2); }
+  else { data.id = editingId || 'new'; data.money = parseFloat(data.price).toFixed(2); }
 
-  try {
-    await window.db.saveRecord(currentTab === 'fuel' ? 'fuel' : 'maintenance', data);
-    await loadData(); // ✅ Refresca inmediatamente
-    $modal.close();
-  } catch (err) { alert('Error: ' + err.message); console.error(err); }
+  try { await window.db.saveRecord(currentTab === 'fuel' ? 'fuel' : 'maintenance', data); await loadData(); $modal.close(); }
+  catch (err) { alert('Error: ' + err.message); console.error(err); }
 }
 
 async function deleteRecord(id) {
   if (!confirm('¿Eliminar este registro?')) return;
   if (!currentUser) return showLoginModal();
-  try {
-    await window.db.deleteRecord(currentTab === 'fuel' ? 'fuel' : 'maintenance', id);
-    await loadData(); // ✅ Refresca inmediatamente
-  } catch (err) { alert('Error: ' + err.message); console.error(err); }
+  try { await window.db.deleteRecord(currentTab === 'fuel' ? 'fuel' : 'maintenance', id); await loadData(); }
+  catch (err) { alert('Error: ' + err.message); console.error(err); }
 }
 
 function formatDate(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('es-CU', { timeZone: 'America/Havana' }); }
