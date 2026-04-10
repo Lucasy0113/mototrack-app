@@ -121,7 +121,6 @@ function setupUserMenu() {
     const confirmPass = document.getElementById('confirm-pass')?.value;
 
     if($passMsg) { $passMsg.textContent = '⏳ Verificando...'; $passMsg.className = 'msg'; }
-
     if (newPass !== confirmPass) {
       if($passMsg) { $passMsg.textContent = '❌ No coinciden'; $passMsg.className = 'msg error'; } return;
     }
@@ -160,11 +159,9 @@ async function loadData() {
   } catch (e) { console.error('❌ Error cargando:', e); renderAll(); }
 }
 
-// ✅ Cálculo de Consumo e Intervalo
 function calculateMetrics(records, type) {
   if (!records?.length) return [];
   const sorted = [...records].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
-  
   sorted.forEach((rec, i) => {
     const prev = sorted[i - 1];
     const odom = parseFloat(rec.odometer) || 0;
@@ -174,10 +171,10 @@ function calculateMetrics(records, type) {
     if (type === 'fuel') {
       const liters = parseFloat(rec.liters) || 0;
       rec.consumption = prev && liters > 0 ? (diff / liters).toFixed(2) : 'PRIMER REGISTRO';
-      rec.interval = prev ? diff.toFixed(2) : 'PRIMER REGISTRO'; // ✅ Nuevo cálculo
+      rec.interval = prev ? diff.toFixed(2) : 'PRIMER REGISTRO';
     } else {
       rec.consumption = prev ? diff.toFixed(2) : 'PRIMER REGISTRO';
-      rec.interval = rec.consumption; // Compatibilidad visual
+      rec.interval = rec.consumption;
     }
   });
   return records;
@@ -318,6 +315,8 @@ function openModal(id = null) {
   editingId = id;
   const rec = id ? localCache[currentTab].find(r => r.id === id) : null;
   if(document.getElementById('modal-title')) document.getElementById('modal-title').textContent = id ? 'Editar Registro' : 'Nuevo Registro';
+  
+  // ✅ Hora local correcta para el input
   const now = new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
   if($fields) $fields.innerHTML = '';
 
@@ -367,6 +366,11 @@ async function saveRecord(e) {
   const data = {};
   $fields?.querySelectorAll('input, select').forEach(el => data[el.id] = el.value);
   
+  // ✅ CORRECCIÓN ZONA HORARIA: Convertir hora local a UTC antes de guardar
+  if (data.date) {
+    data.date = new Date(data.date).toISOString();
+  }
+
   showLoading();
   try {
     if (currentTab === 'fuel') { 
@@ -398,7 +402,16 @@ async function deleteRecord(id) {
   } finally { hideLoading(); }
 }
 
-function formatDate(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('es-CU', { timeZone: 'America/Havana' }); }
+// ✅ Formato seguro para Cuba (maneja automáticamente horario de verano/invierno)
+function formatDate(iso) { 
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('es-CU', { 
+    timeZone: 'America/Havana', 
+    year: 'numeric', month: '2-digit', day: '2-digit', 
+    hour: '2-digit', minute: '2-digit', hour12: false 
+  }).replace(',', ' -'); 
+}
+
 function loadTheme() { document.body.className = localStorage.getItem('mototrack_theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); }
 function toggleTheme() { document.body.className = document.body.className === 'dark' ? 'light' : 'dark'; localStorage.setItem('mototrack_theme', document.body.className); }
 
